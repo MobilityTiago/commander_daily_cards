@@ -6,7 +6,7 @@ import '../models/filter_settings.dart';
 import '../widgets/card_suggestion_section.dart';
 import 'filter_screen.dart';
 
-class HomeScreen extends StatefulWidget {
+class HomeScreen extends StatefulWidget { 
   const HomeScreen({super.key});
 
   @override
