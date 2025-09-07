@@ -20,7 +20,7 @@ class CommanderDeckApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => LandFilterSettings()),
       ],
       child: MaterialApp(
-        title: 'Commander Daily Cards',
+        title: 'Commander''s Deck',
         home: const NavigationScreen(currentRoute: '/daily'),
         onGenerateRoute: (settings) {
           return MaterialPageRoute(

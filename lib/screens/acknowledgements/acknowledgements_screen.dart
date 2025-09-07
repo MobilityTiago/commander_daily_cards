@@ -1,3 +1,4 @@
+import 'package:commander_deck/widgets/app_drawer.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../widgets/app_bar.dart';
@@ -8,6 +9,7 @@ class AcknowledgementsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      drawer: const AppDrawer(currentPage: '/acknowledgements'),
       appBar: const CommanderAppBar(
         title: 'Acknowledgements',
       ),

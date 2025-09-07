@@ -1,16 +1,22 @@
 import 'package:flutter/material.dart';
+import '../../widgets/app_bar.dart';
+import '../../widgets/app_drawer.dart';
 
 class LandGuideScreen extends StatelessWidget {
   const LandGuideScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Land Guide'),
+    return const Scaffold(
+      drawer: AppDrawer(currentPage: '/land-guide'),
+      appBar: CommanderAppBar(
+        title: 'Land Guide',
       ),
-      body: const Center(
-        child: Text('Land Guide Screen - Coming Soon'),
+      body: Center(
+        child: Text(
+          'Land Guide Screen - Coming Soon',
+          style: TextStyle(color: Color(0xFF2A2A2A)),
+        ),
       ),
     );
   }
