@@ -19,15 +19,19 @@ A Flutter app that provides daily card suggestions for Magic: The Gathering Comm
 
 ## Screens
 **Home screen**
+
 ![Home screen](docs/images/1_homescreen.png)
 
 **Menu**
+
 ![Menu](docs/images/2_menu.png)
 
 **Home screen spell filter**
+
 ![Home screen spell filter](docs/images/3_homescreen_filter_1.png)
 
 **Home screen land filter**
+
 ![Home screen land filter](docs/images/4_homescreen_filter_1.png)
 
 
