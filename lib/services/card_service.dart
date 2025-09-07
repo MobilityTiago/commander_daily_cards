@@ -328,4 +328,20 @@ Future<void> _saveDailyCards() async {
   bool _isGameChanger(MTGCard card) {
     return card.gameChanger;
   }
+
+  List<MTGCard> searchCards(String query) {
+    if (query.trim().isEmpty) return [];
+    
+    final normalizedQuery = query.toLowerCase().trim();
+    
+    return _allCards.where((card) {
+      final name = card.name.toLowerCase();
+      final text = card.oracleText?.toLowerCase() ?? '';
+      final typeLine = card.typeLine?.toLowerCase() ?? '';
+      
+      return name.contains(normalizedQuery) ||
+             text.contains(normalizedQuery) ||
+             typeLine.contains(normalizedQuery);
+    }).toList();
+  }
 }

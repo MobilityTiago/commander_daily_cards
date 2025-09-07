@@ -1,15 +1,15 @@
+import 'package:commander_deck/screens/navigation/navigation_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'screens/home/home_screen.dart';
 import 'services/card_service.dart';
 import 'models/filters/filter_settings.dart';
 
 void main() {
-  runApp(const CommanderDailyCardsApp());
+  runApp(const CommanderDeckApp());
 }
 
-class CommanderDailyCardsApp extends StatelessWidget {
-  const CommanderDailyCardsApp({super.key});
+class CommanderDeckApp extends StatelessWidget {
+  const CommanderDeckApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -21,11 +21,14 @@ class CommanderDailyCardsApp extends StatelessWidget {
       ],
       child: MaterialApp(
         title: 'Commander Daily Cards',
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-          useMaterial3: true,
-        ),
-        home: const HomeScreen(),
+        home: const NavigationScreen(currentRoute: '/daily'),
+        onGenerateRoute: (settings) {
+          return MaterialPageRoute(
+            builder: (context) => NavigationScreen(
+              currentRoute: settings.name ?? '/daily',
+            ),
+          );
+        },
       ),
     );
   }

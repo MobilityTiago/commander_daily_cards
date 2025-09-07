@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../styles/colors.dart';
 
 class CommanderAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
@@ -19,7 +20,17 @@ class CommanderAppBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     return AppBar(
-      title: Text(title),
+      backgroundColor: AppColors.darkGrey,
+      foregroundColor: AppColors.lightGrey,
+      title: Text(
+        title,
+        style: const TextStyle(
+          color: AppColors.lightGrey,
+        ),
+      ),
+      iconTheme: const IconThemeData(
+        color: AppColors.lightGrey,
+      ),
       actions: [
         if (showRefreshButton)
           IconButton(

@@ -1,4 +1,4 @@
-import 'package:commander_daily_cards/models/cards/mtg_card.dart';
+import 'package:commander_deck/models/cards/mtg_card.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -32,7 +32,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      drawer: const AppDrawer(),
+       drawer: const AppDrawer(currentPage: 'daily'),
       appBar: CommanderAppBar(
         title: 'Commander\'s Deck',
         showFilterButton: true,

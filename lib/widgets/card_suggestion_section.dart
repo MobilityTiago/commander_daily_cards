@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:commander_daily_cards/models/cards/mtg_card.dart';
+import 'package:commander_deck/models/cards/mtg_card.dart';
 
 class CardSuggestionSection extends StatelessWidget {
   final MTGCard? card;
