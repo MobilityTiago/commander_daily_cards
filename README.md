@@ -5,12 +5,31 @@ A Flutter app that provides daily card suggestions for Magic: The Gathering Comm
 
 ## Features
 
-- **Daily Card Suggestions**: Get a regular card and a game changer card suggestion every day
+- **Daily Card Suggestions**: Get regular cards and game changer cards suggestion every day
+- **Land & Spell Separation**: Separate suggestions for lands and spells
 - **Scryfall Integration**: Downloads and updates card data from Scryfall API every two weeks
 - **Commander Ban List**: Automatically filters out banned cards
-- **Advanced Filtering**: Filter by card types, colors, mana cost, and keywords
+- **Advanced Filtering**: 
+  - Spells: Filter by card types, colors, mana cost, and keywords
+  - Lands: Filter by land types, produced mana, and special lands
 - **Offline Support**: Stores card data locally for offline access
 - **Deterministic Selection**: Same daily cards for all users on the same day
+- **Artist Credits**: Shows artist information for card artwork
+- **Support & Info**: Added support and acknowledgement sections
+
+## Screens
+**Home screen**
+![Home screen](docs/images/1_homescreen.png)
+
+**Menu**
+![Menu](docs/images/2_menu.png)
+
+**Home screen spell filter**
+![Home screen spell filter](docs/images/3_homescreen_filter_1.png)
+
+**Home screen land filter**
+![Home screen land filter](docs/images/4_homescreen_filter_1.png)
+
 
 ## Getting Started
 
@@ -38,20 +57,24 @@ A Flutter app that provides daily card suggestions for Magic: The Gathering Comm
 
 ```
 lib/
-├── main.dart                 # App entry point
+├── main.dart                # App entry point
 ├── models/
-│   ├── mtg_card.dart        # MTG card data model
-│   ├── bulk_data.dart       # Scryfall bulk data models
-│   ├── card_enums.dart      # Card types and color enums
-│   └── filter_settings.dart # User filter preferences
+│   ├── mtg_card.dart       # MTG card data model
+│   ├── bulk_data.dart      # Scryfall bulk data models
+│   ├── card_enums.dart     # Card types and color enums
+│   └── filters/
+│       ├── base_filter_settings.dart
+│       ├── spell_filter_settings.dart
+│       └── land_filter_settings.dart
 ├── services/
-│   └── card_service.dart    # Main service for card data management
+│   └── card_service.dart   # Main service for card data management
 ├── screens/
-│   ├── home_screen.dart     # Main screen with daily cards
-│   └── filter_screen.dart   # Filter configuration screen
+│   ├── home/              # Main screen with daily cards
+│   └── filter/            # Filter configuration screens
 └── widgets/
-    ├── card_suggestion_section.dart # Card section component
-    └── card_widget.dart            # Individual card display widget
+    ├── app_drawer.dart    # Navigation drawer
+    ├── app_bar.dart       # Custom app bar
+    └── card_suggestion_section.dart
 ```
 
 ## How It Works
@@ -106,7 +129,7 @@ flutter build ios --release
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the AGPL-3.0 License - see the LICENSE.md file for details.
 
 ## Acknowledgments
 

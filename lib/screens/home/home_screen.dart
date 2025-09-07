@@ -6,8 +6,9 @@ import '../../services/card_service.dart';
 import '../../models/filters/filter_settings.dart';
 import '../../widgets/card_suggestion_section.dart';
 import 'filter_screen.dart';
-import '../card_search/card_search_screen.dart';
-import '../land_guide/land_guide_screen.dart';
+import '../../widgets/app_drawer.dart';
+import '../../widgets/app_bar.dart';
+
 
 class HomeScreen extends StatefulWidget { 
   const HomeScreen({super.key});
@@ -31,85 +32,26 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            DrawerHeader(
-              decoration: BoxDecoration(
-                color: Theme.of(context).primaryColor,
-              ),
-              child: const Text(
-                'Commander''s Deck',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 24,
-                ),
-              ),
+      drawer: const AppDrawer(),
+      appBar: CommanderAppBar(
+        title: 'Commander\'s Deck',
+        showFilterButton: true,
+        showRefreshButton: true,
+        onFilterPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => const FilterScreen(),
             ),
-            ListTile(
-              leading: const Icon(Icons.today),
-              title: const Text('Daily Suggestions'),
-              selected: true,
-              onTap: () {
-                Navigator.pop(context); // Close drawer
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.search),
-              title: const Text('Search'),
-              onTap: () {
-                Navigator.pop(context); // Close drawer
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => const CardSearchScreen(),
-                  ),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.landscape),
-              title: const Text('Land Guide'),
-              onTap: () {
-                Navigator.pop(context); // Close drawer
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => const LandGuideScreen(),
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-      appBar: AppBar(
-        title: const Text('Commander''s Deck'),
-        actions: [
-          Consumer<CardService>(
-            builder: (context, cardService, child) {
-              return IconButton(
-                onPressed: cardService.isLoading
-                    ? null
-                    : () async {
-                        final nonLandFilters = context.read<SpellFilterSettings>();
-                        final landFilters = context.read<LandFilterSettings>();
-                        await cardService.refreshDailyCards(nonLandFilters, landFilters);
-                      },
-                icon: const Icon(Icons.refresh),
-              );
-            },
-          ),
-          IconButton(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => const FilterScreen(),
-                ),
-              );
-            },
-            icon: const Icon(Icons.filter_alt),
-          ),
-        ],
+          );
+        },
+        onRefreshPressed: () async {
+          final cardService = context.read<CardService>();
+          if (!cardService.isLoading) {
+            final nonLandFilters = context.read<SpellFilterSettings>();
+            final landFilters = context.read<LandFilterSettings>();
+            await cardService.refreshDailyCards(nonLandFilters, landFilters);
+          }
+        },
       ),
       body: Consumer<CardService>(
         builder: (context, cardService, child) {
