@@ -1,51 +1,106 @@
 import 'package:flutter/material.dart';
-import '../models/mtg_card.dart';
-import 'card_widget.dart';
+import 'package:commander_daily_cards/models/cards/mtg_card.dart';
 
 class CardSuggestionSection extends StatelessWidget {
-  final String title;
   final MTGCard? card;
   final Color accentColor;
 
   const CardSuggestionSection({
     super.key,
-    required this.title,
     required this.card,
     required this.accentColor,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Text(
-            title,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              color: accentColor,
-              fontWeight: FontWeight.bold,
+    if (card == null) {
+      return Card(
+        child: Container(
+          height: MediaQuery.of(context).size.width * 1.4, // Maintain card aspect ratio
+          padding: const EdgeInsets.all(16),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.filter_list_off,
+                  size: 48,
+                  color: Theme.of(context).disabledColor,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'No cards match your filters',
+                  style: Theme.of(context).textTheme.titleMedium,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Try adjusting your filter settings',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).textTheme.bodySmall?.color,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
             ),
           ),
         ),
-        if (card != null)
-          CardWidget(card: card!)
-        else
-          Container(
-            height: 200,
-            decoration: BoxDecoration(
-              color: Colors.grey[200],
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Center(
-              child: Text(
-                'No card available',
-                style: TextStyle(color: Colors.grey),
-              ),
+      );
+    }
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        children: [
+          // Card Image
+          AspectRatio(
+            aspectRatio: 0.716,
+            child: Image.network(
+              card!.imageUrl ?? '',
+              fit: BoxFit.cover,
+              loadingBuilder: (context, child, loadingProgress) {
+                if (loadingProgress == null) return child;
+                return Center(
+                  child: CircularProgressIndicator(
+                    value: loadingProgress.expectedTotalBytes != null
+                        ? loadingProgress.cumulativeBytesLoaded /
+                            loadingProgress.expectedTotalBytes!
+                        : null,
+                  ),
+                );
+              },
+              errorBuilder: (context, error, stackTrace) {
+                return const Center(
+                  child: Icon(Icons.broken_image),
+                );
+              },
             ),
           ),
-      ],
+                   // Game Changer Indicator
+          if (card!.gameChanger)
+            Positioned(
+              top: 0,
+              left: 0,
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: const BoxDecoration(
+                  color: Colors.red,
+                  borderRadius: BorderRadius.only(
+                    bottomRight: Radius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'GC',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

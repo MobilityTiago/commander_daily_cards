@@ -1,0 +1,32 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "commander_daily_cards (simulator)",
+            "request": "launch",
+            "type": "dart",
+            "deviceId": "E6B67035-C58F-4E84-8C91-254EC844FB54"
+        },
+        {
+            "name": "commander_daily_cards device)",
+            "request": "launch",
+            "type": "dart",
+            "deviceId": "00008110-001625E40C81401E"
+        },
+        {
+            "name": "commander_daily_cards (profile mode)",
+            "request": "launch",
+            "type": "dart",
+            "flutterMode": "profile"
+        },
+        {
+            "name": "commander_daily_cards (release mode)",
+            "request": "launch",
+            "type": "dart",
+            "flutterMode": "release"
+        }
+    ]
+}

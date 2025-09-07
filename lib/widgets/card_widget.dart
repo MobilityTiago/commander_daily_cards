@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import '../models/mtg_card.dart';
+import '../models/cards/mtg_card.dart';
 
 class CardWidget extends StatelessWidget {
   final MTGCard card;

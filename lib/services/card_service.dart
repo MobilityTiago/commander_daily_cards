@@ -1,29 +1,37 @@
 import 'dart:convert';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import '../models/mtg_card.dart';
-import '../models/bulk_data.dart';
-import '../models/filter_settings.dart';
+import '../models/cards/mtg_card.dart';
+import '../models/service/bulk_data.dart';
+import '../models/filters/filter_settings.dart';
 
 class CardService extends ChangeNotifier {
   bool _isLoading = false;
   MTGCard? _dailyRegularCard;
   MTGCard? _dailyGameChangerCard;
+  MTGCard? _dailyRegularLand;
+  MTGCard? _dailyGameChangerLand;
   List<MTGCard> _allCards = [];
 
   bool get isLoading => _isLoading;
   MTGCard? get dailyRegularCard => _dailyRegularCard;
   MTGCard? get dailyGameChangerCard => _dailyGameChangerCard;
+  MTGCard? get dailyRegularLand => _dailyRegularLand;
+  MTGCard? get dailyGameChangerLand => _dailyGameChangerLand;
 
   static const String _lastUpdateKey = 'LastCardDataUpdate';
   static const String _dailyCardDateKey = 'LastDailyCardDate';
   static const String _regularCardKey = 'DailyRegularCard';
   static const String _gameChangerCardKey = 'DailyGameChangerCard';
+  static const String _regularLandKey = 'DailyRegularLand';
+  static const String _gameChangerLandKey = 'DailyGameChangerLand';
   static const String _allCardsKey = 'AllCards';
 
-  Future<void> loadInitialData(FilterSettings filters) async {
+  Future<void> loadInitialData(SpellFilterSettings nonLandFilters, LandFilterSettings landFilters) async {
+
     _isLoading = true;
     notifyListeners();
 
@@ -37,7 +45,7 @@ class CardService extends ChangeNotifier {
       }
 
       if (await _shouldGenerateNewDailyCards()) {
-        await generateDailyCards(filters);
+        await generateDailyCards(nonLandFilters, landFilters);
       } else {
         await _loadSavedDailyCards();
       }
@@ -49,8 +57,9 @@ class CardService extends ChangeNotifier {
     }
   }
 
-  Future<void> refreshDailyCards(FilterSettings filters) async {
-    await generateDailyCards(filters);
+  Future<void> refreshDailyCards(SpellFilterSettings nonLandFilters, LandFilterSettings landFilters) async {
+   
+    await generateDailyCards(nonLandFilters, landFilters);
   }
 
   Future<bool> _shouldUpdateCardData() async {
@@ -65,7 +74,25 @@ class CardService extends ChangeNotifier {
     return lastUpdate.isBefore(twoWeeksAgo);
   }
 
-  Future<bool> _shouldGenerateNewDailyCards() async {
+   Future<bool> _shouldGenerateNewDailyCards() async {
+    // Check if regular cards are null
+    if (_dailyRegularCard == null || _dailyRegularLand == null) {
+      return true;
+    }
+
+    // Validate game changer status
+    if (_dailyRegularCard!.gameChanger || _dailyRegularLand!.gameChanger) {
+      return true;
+    }
+
+    // Only check game changer status if the cards exist
+    if (_dailyGameChangerCard != null && !_dailyGameChangerCard!.gameChanger) {
+      return true;
+    }
+    if (_dailyGameChangerLand != null && !_dailyGameChangerLand!.gameChanger) {
+      return true;
+    }
+
     final prefs = await SharedPreferences.getInstance();
     final lastDateString = prefs.getString(_dailyCardDateKey);
     
@@ -157,13 +184,24 @@ class CardService extends ChangeNotifier {
     }
   }
 
-  Future<void> generateDailyCards(FilterSettings filters) async {
-    final filteredCards = _allCards
-        .where((card) => filters.matchesCard(card) && !_isCommanderBanned(card))
-        .toList();
+  Future<void> generateDailyCards(SpellFilterSettings nonLandFilters, LandFilterSettings landFilters) async {
+    final filteredCards = _allCards.where((card) => 
+        nonLandFilters.matchesCard(card) && 
+        !_isCommanderBanned(card)
+    ).toList();
+    
+    final filteredLands = _allCards.where((card) => 
+        landFilters.matchesCard(card) && 
+        !_isCommanderBanned(card)
+    ).toList();
 
     if (filteredCards.isEmpty) {
       debugPrint('No cards match the current filters');
+      return;
+    }
+
+    if (filteredLands.isEmpty) {
+      debugPrint('No lands match the current filters');
       return;
     }
 
@@ -174,17 +212,44 @@ class CardService extends ChangeNotifier {
     final random = Random(seed);
 
     final shuffledCards = List<MTGCard>.from(filteredCards)..shuffle(random);
+    final shuffledLands = List<MTGCard>.from(filteredLands)..shuffle(random);
 
-    // Select regular card
-    _dailyRegularCard = shuffledCards.first;
-
-    // Select game changer card
-    _dailyGameChangerCard = shuffledCards
-        .skip(1)
+  // Select regular card and game changer
+    _dailyRegularCard = shuffledCards
         .firstWhere(
-          (card) => _isGameChanger(card),
-          orElse: () => shuffledCards.length > 1 ? shuffledCards[1] : shuffledCards.first,
+          (card) => !_isGameChanger(card),
+          orElse: () => shuffledCards.first,
         );
+    
+    try{
+        _dailyGameChangerCard = shuffledCards
+          .where((card) => card != _dailyRegularCard)
+          .firstWhere(
+            (card) => _isGameChanger(card)
+          );
+    }
+    catch(e){
+      _dailyGameChangerCard = null;
+    }
+
+    // Select lands
+      _dailyRegularLand = shuffledLands
+        .firstWhere(
+          (card) => !_isGameChanger(card),
+          orElse: () => shuffledLands.first,
+        );
+
+        try{
+            _dailyGameChangerLand = shuffledLands
+              .where((card) => card != _dailyRegularLand)
+              .firstWhere(
+          (card) => _isGameChanger(card)
+        );
+        }
+        catch(e){
+          _dailyGameChangerLand = null;
+        }
+    
 
     await _saveDailyCards();
     notifyListeners();
@@ -203,12 +268,22 @@ class CardService extends ChangeNotifier {
       if (gameChangerCardJson != null) {
         _dailyGameChangerCard = MTGCard.fromJson(json.decode(gameChangerCardJson));
       }
+
+      final regularLandCardJson = prefs.getString(_regularLandKey);
+      if (regularLandCardJson != null) {
+        _dailyRegularLand = MTGCard.fromJson(json.decode(regularLandCardJson));
+      }
+
+      final gameChangerLandJson = prefs.getString(_gameChangerLandKey);
+      if (gameChangerLandJson != null) {
+        _dailyGameChangerLand = MTGCard.fromJson(json.decode(gameChangerLandJson));
+      }
     } catch (e) {
       debugPrint('Error loading saved daily cards: $e');
     }
   }
 
-  Future<void> _saveDailyCards() async {
+Future<void> _saveDailyCards() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       
@@ -227,40 +302,30 @@ class CardService extends ChangeNotifier {
           json.encode(_dailyGameChangerCard!.toJson()),
         );
       }
+
+      if (_dailyRegularLand != null) {
+        await prefs.setString(
+          _regularLandKey,
+          json.encode(_dailyRegularLand!.toJson()),
+        );
+      }
+
+      if (_dailyGameChangerLand != null) {
+        await prefs.setString(
+          _gameChangerLandKey,
+          json.encode(_dailyGameChangerLand!.toJson()),
+        );
+      }
     } catch (e) {
       debugPrint('Error saving daily cards: $e');
     }
   }
 
   bool _isCommanderBanned(MTGCard card) {
-    const bannedCards = [
-      'Ancestral Recall', 'Balance', 'Biorhythm', 'Black Lotus',
-      'Braids, Cabal Minion', 'Chaos Orb', 'Coalition Victory',
-      'Channel', 'Emrakul, the Aeons Torn', 'Erayo, Soratami Ascendant',
-      'Falling Star', 'Fastbond', 'Flash', 'Gifts Ungiven',
-      'Griselbrand', 'Hullbreacher', 'Iona, Shield of Emeria',
-      'Karakas', 'Leovold, Emissary of Trest', 'Library of Alexandria',
-      'Limited Resources', 'Lutri, the Spellchaser', 'Mox Emerald',
-      'Mox Jet', 'Mox Pearl', 'Mox Ruby', 'Mox Sapphire',
-      'Panoptic Mirror', 'Paradox Engine', 'Primeval Titan',
-      'Prophet of Kruphix', 'Recurring Nightmare', 'Rofellos, Llanowar Emissary',
-      'Shahrazad', 'Sundering Titan', 'Sway of the Stars',
-      'Sylvan Primordial', 'Time Vault', 'Time Walk', 'Tinker',
-      'Tolarian Academy', 'Trade Secrets', 'Upheaval', 'Yawgmoth\'s Bargain'
-    ];
-
-    return bannedCards.contains(card.name);
+    return card.legalities['commander'] == 'banned';
   }
 
   bool _isGameChanger(MTGCard card) {
-    const gameChangerKeywords = [
-      'draw', 'destroy', 'exile', 'counter', 'return', 'search',
-      'double', 'extra turn', 'win the game', 'lose the game',
-      'each opponent', 'all opponents'
-    ];
-
-    final oracleText = card.oracleText?.toLowerCase() ?? '';
-    return gameChangerKeywords.any((keyword) => oracleText.contains(keyword)) ||
-        card.cmc >= 6;
+    return card.gameChanger;
   }
 }

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'screens/home_screen.dart';
+import 'screens/home/home_screen.dart';
 import 'services/card_service.dart';
-import 'models/filter_settings.dart';
+import 'models/filters/filter_settings.dart';
 
 void main() {
   runApp(const CommanderDailyCardsApp());
@@ -16,7 +16,8 @@ class CommanderDailyCardsApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => CardService()),
-        ChangeNotifierProvider(create: (_) => FilterSettings()),
+        ChangeNotifierProvider(create: (_) => SpellFilterSettings()),
+        ChangeNotifierProvider(create: (_) => LandFilterSettings()),
       ],
       child: MaterialApp(
         title: 'Commander Daily Cards',
