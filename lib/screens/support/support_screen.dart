@@ -1,3 +1,4 @@
+import 'package:commander_deck/screens/navigation/navigation_screen.dart';
 import 'package:commander_deck/widgets/app_drawer.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -10,7 +11,7 @@ class SupportScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      drawer: const AppDrawer(currentPage: '/support'),
+      drawer: const AppDrawer(currentPage: NavigationScreen.routeSupport),
       appBar: const CommanderAppBar(
         title: 'Support Me',
       ),

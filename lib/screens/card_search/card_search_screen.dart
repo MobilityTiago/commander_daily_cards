@@ -1,3 +1,4 @@
+import 'package:commander_deck/screens/navigation/navigation_screen.dart';
 import 'package:flutter/material.dart';
 import '../../widgets/app_bar.dart';
 import 'advanced_search_screen.dart';
@@ -5,6 +6,8 @@ import 'package:provider/provider.dart';
 import '../../services/card_service.dart';
 import '../../models/cards/mtg_card.dart';
 import '../../widgets/app_drawer.dart';
+import '../../styles/colors.dart';
+import '../../widgets/card_zoom_view.dart';
 
 
 class CardSearchScreen extends StatefulWidget {
@@ -34,7 +37,7 @@ class _CardSearchScreenState extends State<CardSearchScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      drawer: const AppDrawer(currentPage: 'search'),
+      drawer: const AppDrawer(currentPage: NavigationScreen.routeSearch),
       appBar: const CommanderAppBar(
         title: 'Search Cards',
       ),
@@ -45,19 +48,11 @@ class _CardSearchScreenState extends State<CardSearchScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
-                  'Search for Commander cards',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFFF5F5F5),  // Changed to light grey
-                  ),
-                ),
                 const SizedBox(height: 8),
                 const Text(
                   'Enter card name, oracle text, or any card property',
                   style: TextStyle(
-                    color: Color(0xFF2A2A2A),  // Changed to dark grey
+                    color: AppColors.darkGrey,
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -68,14 +63,16 @@ class _CardSearchScreenState extends State<CardSearchScreen> {
                         controller: _searchController,
                         decoration: InputDecoration(
                           hintText: 'Search cards...',
+                          hintStyle: const TextStyle(color: AppColors.white),
                           prefixIcon: const Icon(Icons.search),
+                          prefixIconColor: AppColors.white,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
                           ),
                           filled: true,
-                          fillColor: const Color(0xFF2A2A2A),
+                          fillColor: AppColors.darkGrey,
                         ),
-                        style: const TextStyle(color: Color(0xFFF5F5F5)),
+                        style: const TextStyle(color: AppColors.white),
                         onSubmitted: _performSearch,
                       ),
                     ),
@@ -83,7 +80,7 @@ class _CardSearchScreenState extends State<CardSearchScreen> {
                     ElevatedButton(
                       onPressed: () => _performSearch(_searchController.text),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF3D0000),
+                        backgroundColor: AppColors.darkRed,
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
@@ -91,7 +88,7 @@ class _CardSearchScreenState extends State<CardSearchScreen> {
                       ),
                       child: const Text(
                         'Search',
-                        style: TextStyle(color: Color(0xFFF5F5F5)),
+                        style: TextStyle(color: AppColors.red),
                       ),
                     ),
                   ],
@@ -109,43 +106,89 @@ class _CardSearchScreenState extends State<CardSearchScreen> {
                   label: const Text('Advanced Search'),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.all(16),
-                    foregroundColor: const Color(0xFF2A2A2A),
-                    side: const BorderSide(color: Color(0xFF2A2A2A)),
+                    foregroundColor: AppColors.darkGrey,
+                    side: const BorderSide(color: AppColors.darkGrey),
                   ),
                 ),
               ],
             ),
           ),
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: GridView.builder(
+              padding: const EdgeInsets.all(16),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                childAspectRatio: 0.715, // Card aspect ratio
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 16,
+              ),
               itemCount: _searchResults.length,
               itemBuilder: (context, index) {
                 final card = _searchResults[index];
                 return Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    leading: card.imageUris?.artCrop != null
-                        ? Image.network(
-                            card.imageUris!.artCrop!,
-                            width: 40,
-                            height: 40,
-                            fit: BoxFit.cover,
-                          )
-                        : const Icon(Icons.image_not_supported),
-                     title: Text(
-                      card.name,
-                      style: const TextStyle(color: Color(0xFF2A2A2A)),  // Changed to dark grey
-                    ),
-                    subtitle: Text(
-                      card.typeLine ?? '',
-                      style: const TextStyle(
-                        color: Color(0xFF2A2A2A),  // Changed to dark grey
+                  clipBehavior: Clip.antiAlias,
+                  child: Stack(
+                    children: [
+                      InkWell(
+                        onTap: () {
+                          if (card.imageUris?.normal != null) {
+                            Navigator.of(context).push(
+                              PageRouteBuilder(
+                                opaque: false,
+                                pageBuilder: (context, _, __) => CardZoomView(
+                                  cards: _searchResults,
+                                  initialIndex: index,
+                                ),
+                                transitionsBuilder: (context, animation, _, child) {
+                                  return FadeTransition(
+                                    opacity: animation,
+                                    child: child,
+                                  );
+                                },
+                              ),
+                            );
+                          }
+                        },
+                        child: card.imageUris?.normal != null
+                            ? Image.network(
+                                card.imageUris!.normal!,
+                                fit: BoxFit.cover,
+                              )
+                            : const Center(
+                                child: Icon(
+                                  Icons.broken_image,
+                                  size: 48,
+                                  color: AppColors.darkGrey,
+                                ),
+                              ),
                       ),
-                    ),
-                    onTap: () {
-                      // TODO: Navigate to card details
-                    },
+                      if (card.gameChanger)
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          child: Container(
+                            width: 20,  // Reduced from 40
+                            height: 20, // Reduced from 40
+                            decoration: const BoxDecoration(
+                              color: AppColors.red,
+                              borderRadius: BorderRadius.only(
+                                topLeft: Radius.circular(2),    // Reduced from 4
+                                bottomRight: Radius.circular(8), // Reduced from 16
+                              ),
+                            ),
+                            child: const Center(
+                              child: Text(
+                                'GC',
+                                style: TextStyle(
+                                  color: AppColors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 10, // Added to scale text with container
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 );
               },

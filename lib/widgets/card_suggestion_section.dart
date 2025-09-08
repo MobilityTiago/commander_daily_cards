@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:commander_deck/models/cards/mtg_card.dart';
+import '../models/cards/mtg_card.dart';
+import 'card_zoom_view.dart';
 
 class CardSuggestionSection extends StatelessWidget {
   final MTGCard? card;
@@ -50,56 +51,77 @@ class CardSuggestionSection extends StatelessWidget {
 
     return Card(
       clipBehavior: Clip.antiAlias,
-      child: Stack(
-        children: [
-          // Card Image
-          AspectRatio(
-            aspectRatio: 0.716,
-            child: Image.network(
-              card!.imageUrl ?? '',
-              fit: BoxFit.cover,
-              loadingBuilder: (context, child, loadingProgress) {
-                if (loadingProgress == null) return child;
-                return Center(
-                  child: CircularProgressIndicator(
-                    value: loadingProgress.expectedTotalBytes != null
-                        ? loadingProgress.cumulativeBytesLoaded /
-                            loadingProgress.expectedTotalBytes!
-                        : null,
-                  ),
-                );
-              },
-              errorBuilder: (context, error, stackTrace) {
-                return const Center(
-                  child: Icon(Icons.broken_image),
-                );
-              },
-            ),
-          ),
-                   // Game Changer Indicator
-          if (card!.gameChanger)
-            Positioned(
-              top: 0,
-              left: 0,
-              child: Container(
-                padding: const EdgeInsets.all(4),
-                decoration: const BoxDecoration(
-                  color: Colors.red,
-                  borderRadius: BorderRadius.only(
-                    bottomRight: Radius.circular(12),
-                  ),
+      child: InkWell(
+        onTap: () {
+          if (card?.imageUris?.normal != null) {
+            Navigator.of(context).push(
+              PageRouteBuilder(
+                opaque: false,
+                pageBuilder: (context, _, __) => CardZoomView(
+                  cards: [card!],
+                  initialIndex: 0,
                 ),
-                child: const Text(
-                  'GC',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
+                transitionsBuilder: (context, animation, _, child) {
+                  return FadeTransition(
+                    opacity: animation,
+                    child: child,
+                  );
+                },
+              ),
+            );
+          }
+        },
+        child: Stack(
+          children: [
+            // Card Image
+            AspectRatio(
+              aspectRatio: 0.716,
+              child: Image.network(
+                card!.imageUrl ?? '',
+                fit: BoxFit.cover,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Center(
+                    child: CircularProgressIndicator(
+                      value: loadingProgress.expectedTotalBytes != null
+                          ? loadingProgress.cumulativeBytesLoaded /
+                          loadingProgress.expectedTotalBytes!
+                          : null,
+                    ),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) {
+                  return const Center(
+                    child: Icon(Icons.broken_image),
+                  );
+                },
+              ),
+            ),
+            // Game Changer Indicator
+            if (card!.gameChanger)
+              Positioned(
+                top: 0,
+                left: 0,
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: const BoxDecoration(
+                    color: Colors.red,
+                    borderRadius: BorderRadius.only(
+                      bottomRight: Radius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    'GC',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }

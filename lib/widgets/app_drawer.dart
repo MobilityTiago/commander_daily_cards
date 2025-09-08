@@ -1,19 +1,19 @@
 import 'package:flutter/material.dart';
 import '../styles/colors.dart';
-
+import '../screens/navigation/navigation_screen.dart';
 
 class AppDrawer extends StatelessWidget {
   final String currentPage;
 
   const AppDrawer({
     super.key,
-     this.currentPage = 'daily',
+    this.currentPage = NavigationScreen.routeDaily,
   });
 
-@override
-Widget build(BuildContext context) {
-  return Drawer(
-      backgroundColor: AppColors.drawerBackground,  // Updated to use AppColors
+  @override
+  Widget build(BuildContext context) {
+    return Drawer(
+      backgroundColor: AppColors.drawerBackground,
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
@@ -33,11 +33,11 @@ Widget build(BuildContext context) {
             context: context,
             icon: Icons.today,
             title: 'Daily Suggestions',
-            isSelected: currentPage == 'daily',
+            isSelected: currentPage == NavigationScreen.routeDaily,
             onTap: () {
               Navigator.pop(context);
-              if (currentPage != 'daily') {
-                Navigator.pushReplacementNamed(context, '/daily');
+              if (currentPage != NavigationScreen.routeDaily) {
+                Navigator.pushReplacementNamed(context, NavigationScreen.routeDaily);
               }
             },
           ),
@@ -45,86 +45,77 @@ Widget build(BuildContext context) {
             context: context,
             icon: Icons.search,
             title: 'Search',
-            isSelected: currentPage == 'search',
+            isSelected: currentPage == NavigationScreen.routeSearch,
             onTap: () {
               Navigator.pop(context);
-              if(currentPage != 'search')
-              {
-                if (currentPage != '/daily') {
-                  Navigator.pushReplacementNamed(context, '/search');
+              if (currentPage != NavigationScreen.routeSearch) {
+                if (currentPage != NavigationScreen.routeDaily) {
+                  Navigator.pushReplacementNamed(context, NavigationScreen.routeSearch);
+                } else {
+                  Navigator.pushNamed(context, NavigationScreen.routeSearch);
                 }
-                else{   
-                  Navigator.pushNamed(context, '/search');
-                }
-                }
-              
+              }
             },
           ),
           _buildDrawerItem(
             context: context,
             icon: Icons.landscape,
             title: 'Land Guide',
-            isSelected: currentPage == 'land_guide',
+            isSelected: currentPage == NavigationScreen.routeLandGuide,
             onTap: () {
               Navigator.pop(context);
-              if(currentPage != 'land_guide')
-              {
-                if (currentPage != '/daily') {
-                  Navigator.pushReplacementNamed(context, '/land-guide');
-                }
-                else
-                {
-                  Navigator.pushNamed(context, '/land-guide');
+              if (currentPage != NavigationScreen.routeLandGuide) {
+                if (currentPage != NavigationScreen.routeDaily) {
+                  Navigator.pushReplacementNamed(context, NavigationScreen.routeLandGuide);
+                } else {
+                  Navigator.pushNamed(context, NavigationScreen.routeLandGuide);
                 }
               }
-              
             },
           ),
-        const Divider(
-          color: AppColors.lightGrey,
-          thickness: 1,
-          height: 16,
-          indent: 8,
-          endIndent: 8,
-        ),
-        _buildDrawerItem(
-          context: context,
-          icon: Icons.favorite,
-          title: 'Support Me',
-          isSelected: currentPage == 'support',
-          onTap: () {
-            Navigator.pop(context);
-            if (currentPage != 'support') { 
-              if (currentPage != '/daily') {
-                Navigator.pushReplacementNamed(context, '/support');
+          const Divider(
+            color: AppColors.white,
+            thickness: 1,
+            height: 16,
+            indent: 8,
+            endIndent: 8,
+          ),
+          _buildDrawerItem(
+            context: context,
+            icon: Icons.favorite,
+            title: 'Support Me',
+            isSelected: currentPage == NavigationScreen.routeSupport,
+            onTap: () {
+              Navigator.pop(context);
+              if (currentPage != NavigationScreen.routeSupport) {
+                if (currentPage != NavigationScreen.routeDaily) {
+                  Navigator.pushReplacementNamed(context, NavigationScreen.routeSupport);
+                } else {
+                  Navigator.pushNamed(context, NavigationScreen.routeSupport);
+                }
               }
-              else{
-                Navigator.pushNamed(context, '/support');
+            },
+          ),
+          _buildDrawerItem(
+            context: context,
+            icon: Icons.info,
+            title: 'Acknowledgements',
+            isSelected: currentPage == NavigationScreen.routeAcknowledgements,
+            onTap: () {
+              Navigator.pop(context);
+              if (currentPage != NavigationScreen.routeAcknowledgements) {
+                if (currentPage != NavigationScreen.routeDaily) {
+                  Navigator.pushReplacementNamed(context, NavigationScreen.routeAcknowledgements);
+                } else {
+                  Navigator.pushNamed(context, NavigationScreen.routeAcknowledgements);
+                }
               }
-            }
-          },
-        ),
-        _buildDrawerItem(
-          context: context,
-          icon: Icons.info,
-          title: 'Acknowledgements',
-          isSelected: currentPage == 'acknowledgements',
-          onTap: () {
-            Navigator.pop(context);
-            if (currentPage != 'acknowledgements') {
-              if (currentPage != '/daily') {
-                Navigator.pushReplacementNamed(context, '/acknowledgements');
-              }
-              else{
-                Navigator.pushNamed(context, '/acknowledgements');
-              }
-            }
-          },
-        ),
-      ],
-    ),
-  );
-}
+            },
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildDrawerItem({
     required BuildContext context,
@@ -138,35 +129,37 @@ Widget build(BuildContext context) {
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
         decoration: BoxDecoration(
-          color: isSelected 
+          color: isSelected
               ? AppColors.darkRed
-              : AppColors.lightGrey,
+              : AppColors.white,
           borderRadius: BorderRadius.circular(8),
         ),
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(8),
           splashColor: AppColors.lightGrey,
-          highlightColor: AppColors.darkGrey,
+          highlightColor: AppColors.lightGrey,
+          hoverColor: AppColors.lightGrey,
           child: ListTile(
             leading: Icon(
               icon,
               color: isSelected
                   ? AppColors.red
-                  : AppColors.darkGrey,  // Changed to darkGrey
+                  : AppColors.darkGrey,
             ),
             title: Text(
               title,
               style: TextStyle(
                 color: isSelected
                     ? AppColors.red
-                    : AppColors.darkGrey,  // Changed to darkGrey
+                    : AppColors.darkGrey,
               ),
             ),
             selected: isSelected,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
             ),
+            hoverColor: Colors.transparent,
           ),
         ),
       ),

@@ -7,6 +7,12 @@ import '../acknowledgements/acknowledgements_screen.dart';
 import '../../widgets/app_drawer.dart';
 
 class NavigationScreen extends StatelessWidget {
+  static const String routeDaily = '/daily';
+  static const String routeSearch = '/search';
+  static const String routeLandGuide = '/land-guide';
+  static const String routeSupport = '/support';
+  static const String routeAcknowledgements = '/acknowledgements';
+
   final String currentRoute;
 
   const NavigationScreen({
@@ -24,15 +30,15 @@ class NavigationScreen extends StatelessWidget {
 
   Widget _buildScreen() {
     switch (currentRoute) {
-      case '/daily':
+      case routeDaily:
         return const HomeScreen();
-      case '/search':
+      case routeSearch:
         return const CardSearchScreen();
-      case '/land-guide':
+      case routeLandGuide:
         return const LandGuideScreen();
-      case '/support':
+      case routeSupport:
         return const SupportScreen();
-      case '/acknowledgements':
+      case routeAcknowledgements:
         return const AcknowledgementsScreen();
       default:
         return const HomeScreen();

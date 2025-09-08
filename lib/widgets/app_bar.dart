@@ -25,11 +25,11 @@ class CommanderAppBar extends StatelessWidget implements PreferredSizeWidget {
       title: Text(
         title,
         style: const TextStyle(
-          color: AppColors.lightGrey,
+          color: AppColors.white,
         ),
       ),
       iconTheme: const IconThemeData(
-        color: AppColors.lightGrey,
+        color: AppColors.white,
       ),
       actions: [
         if (showRefreshButton)
