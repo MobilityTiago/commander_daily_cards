@@ -57,17 +57,14 @@ class _NavigationScreenState extends State<NavigationScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Padding(
-        padding: const EdgeInsets.only(bottom: kBottomNavigationBarHeight),
-        child: IndexedStack(
-          index: _currentIndex,
-          children: const [
-            HomeScreen(),
-            CardSearchScreen(),
-            LandGuideScreen(),
-            MoreScreen(),
-          ],
-        ),
+      body: IndexedStack(
+        index: _currentIndex,
+        children: const [
+          HomeScreen(),
+          CardSearchScreen(),
+          LandGuideScreen(),
+          MoreScreen(),
+        ],
       ),
       bottomNavigationBar: AppBottomNavBar(
         currentIndex: _currentIndex,
