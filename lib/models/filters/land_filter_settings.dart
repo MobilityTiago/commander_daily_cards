@@ -19,8 +19,8 @@ static const Set<String> availableLandTypes = {
     'No Subtype',
   };
 
-  Set<MTGColor> _producedMana = Set.from(MTGColor.values);
-  Set<String> _selectedLandTypes = Set.from(availableLandTypes);  // Initialize with all types selected
+  final Set<MTGColor> _producedMana = Set.from(MTGColor.values);
+  final Set<String> _selectedLandTypes = Set.from(availableLandTypes);  // Initialize with all types selected
 
   bool _fetchLands = true;
   bool _shockLands = true;
@@ -75,8 +75,10 @@ static const Set<String> availableLandTypes = {
 
   @override
   bool matchesCard(MTGCard card) {
-    
-    if (!card.typeLine!.toLowerCase().contains('land') == true) {
+    // Land filter should only match cards that explicitly include 'land' in
+    // the type line.
+    if (card.typeLine == null ||
+        !card.typeLine!.toLowerCase().contains('land')) {
       return false;
     }
     final landTypeMatches = _selectedLandTypes.isEmpty ||

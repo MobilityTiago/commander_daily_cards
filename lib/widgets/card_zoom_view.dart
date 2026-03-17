@@ -201,7 +201,7 @@ class _CardZoomViewState extends State<CardZoomView> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.black.withOpacity(0.8),
+      backgroundColor: AppColors.black.withAlpha((0.8 * 255).round()),
       body: GestureDetector(
         onTap: () => Navigator.pop(context),
         onLongPress: () => _showOptions(widget.cards[_currentIndex]),

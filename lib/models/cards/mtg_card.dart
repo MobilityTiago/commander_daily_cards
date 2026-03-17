@@ -14,6 +14,13 @@ class MTGCard {
   final bool gameChanger;
   final String? artist;
   final String? rarity;
+  final String? setCode;
+  final String? setName;
+  final String? lang;
+  final List<String>? games;
+  final double? usd;
+  final double? eur;
+  final double? tix;
   final String? power;     // Added power field
   final String? toughness; // Added toughness field
   final String? loyalty;  // Added loyalty field
@@ -34,6 +41,13 @@ class MTGCard {
     this.gameChanger = false,
     this.artist,
     this.rarity,
+    this.setCode,
+    this.setName,
+    this.lang,
+    this.games,
+    this.usd,
+    this.eur,
+    this.tix,
     this.power,     // Added to constructor
     this.toughness, // Added to constructor
     this.loyalty,        // Added to constructor
@@ -44,7 +58,7 @@ class MTGCard {
       id: json['id'] ?? '',
       name: json['name'] ?? '',
       manaCost: json['mana_cost'],
-      cmc: (json['cmc'] ?? 0).toDouble(),
+      cmc: _parseDouble(json['cmc'], defaultValue: 0),
       typeLine: json['type_line'],
       oracleText: json['oracle_text'],
       colors: json['colors']?.cast<String>(),
@@ -58,9 +72,16 @@ class MTGCard {
       gameChanger: json['game_changer'] ?? false,
       artist: json['artist'],
       rarity: json['rarity']?.toLowerCase(),
-      power: json['power'],     // Parse from JSON
-      toughness: json['toughness'], // Parse from JSON
-      loyalty: json['loyalty'],  // Parse from JSON
+      setCode: json['set'],
+      setName: json['set_name'],
+      lang: json['lang'],
+      games: (json['games'] as List?)?.cast<String>(),
+      usd: _parseDouble(json['prices']?['usd']),
+      eur: _parseDouble(json['prices']?['eur']),
+      tix: _parseDouble(json['prices']?['tix']),
+      power: _parseString(json['power']),     // Parse from JSON (string or number)
+      toughness: _parseString(json['toughness']), // Parse from JSON (string or number)
+      loyalty: _parseString(json['loyalty']),  // Parse from JSON (string or number)
     );
   }
 
@@ -81,6 +102,15 @@ class MTGCard {
       'game_changer': gameChanger,
       'artist': artist,
       'rarity': rarity,
+      'set': setCode,
+      'set_name': setName,
+      'lang': lang,
+      'games': games,
+      'prices': {
+        'usd': usd,
+        'eur': eur,
+        'tix': tix,
+      },
       'power': power,         // Add to JSON
       'toughness': toughness, // Add to JSON
       'loyalty': loyalty,        // Add to JSON
@@ -108,6 +138,21 @@ class MTGCard {
   // Add helper method to check if card is a planeswalker
   bool get isPlaneswalker {
     return typeLine?.toLowerCase().contains('planeswalker') ?? false;
+  }
+
+  static double _parseDouble(dynamic value, {double defaultValue = 0}) {
+    if (value == null) return defaultValue;
+    if (value is num) return value.toDouble();
+    if (value is String) {
+      return double.tryParse(value) ?? defaultValue;
+    }
+    return defaultValue;
+  }
+
+  static String? _parseString(dynamic value) {
+    if (value == null) return null;
+    if (value is String) return value;
+    return value.toString();
   }
 }
 

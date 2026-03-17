@@ -3,12 +3,12 @@ import '../cards/card_enums.dart';
 import '../cards/mtg_card.dart';
 
 class SpellFilterSettings extends BaseFilterSettings {
-  Set<CardType> _selectedCardTypes = Set.from(CardType.values.where((type) => type.displayName != 'Land'));
-  Set<MTGColor> _selectedColors = Set.from(MTGColor.values);
+  final Set<CardType> _selectedCardTypes = Set.from(CardType.values.where((type) => type.displayName != 'Land'));
+  final Set<MTGColor> _selectedColors = Set.from(MTGColor.values);
   double _minCMC = 0.0;
   double _maxCMC = 15.0;
   bool _exclusiveColorMatch = false;
-  Set<String> _selectedRarities = {'common', 'uncommon', 'rare', 'mythic'};
+  final Set<String> _selectedRarities = {'common', 'uncommon', 'rare', 'mythic'};
 
   Set<CardType> get selectedCardTypes => _selectedCardTypes;
   Set<MTGColor> get selectedColors => _selectedColors;
@@ -62,7 +62,10 @@ class SpellFilterSettings extends BaseFilterSettings {
 
   @override
   bool matchesCard(MTGCard card) {
-    if (card.typeLine?.toLowerCase().contains('land') == true) {
+    // Spell filter should only match non-land cards. If typeLine is missing or
+    // doesn't explicitly contain 'land', treat it as a non-land.
+    if (card.typeLine == null ||
+        card.typeLine!.toLowerCase().contains('land')) {
       return false;
     }
 
