@@ -1,4 +1,3 @@
-import 'package:commander_deck/screens/navigation/navigation_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -6,7 +5,6 @@ import '../../services/card_service.dart';
 import '../../models/filters/filter_settings.dart';
 import '../../widgets/card_suggestion_section.dart';
 import 'filter_screen.dart';
-import '../../widgets/app_drawer.dart';
 import '../../widgets/app_bar.dart';
 
 
@@ -42,7 +40,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      drawer: const AppDrawer(currentPage: NavigationScreen.routeDaily),
       body: Consumer<CardService>(
         builder: (context, cardService, child) {
           if (cardService.isLoading) {
@@ -60,12 +57,31 @@ class _HomeScreenState extends State<HomeScreen> {
 
           final dateText = DateFormat.yMMMMd().format(DateTime.now());
           final suggestions = cardService.dailySuggestionCards;
-          final backgroundCard = suggestions.isNotEmpty
-              ? suggestions[_suggestionIndex.clamp(0, suggestions.length - 1)]
-              : (cardService.dailyRegularCard ??
-                  cardService.dailyGameChangerCard ??
-                  cardService.dailyRegularLand ??
-                  cardService.dailyGameChangerLand);
+          final selectedAppBarCard = cardService.dailyAppBarCard;
+          final selectedIndex = selectedAppBarCard != null
+              ? suggestions.indexWhere((c) => c.id == selectedAppBarCard.id)
+              : -1;
+          final effectiveIndex = selectedIndex >= 0 ? selectedIndex : 0;
+
+          // Keep the page view in sync with the current app bar card selection.
+          if (_suggestionIndex != effectiveIndex) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              setState(() => _suggestionIndex = effectiveIndex);
+              if (_suggestionPageController.hasClients &&
+                  effectiveIndex < (suggestions.isEmpty ? 1 : suggestions.length)) {
+                _suggestionPageController.jumpToPage(effectiveIndex);
+              }
+            });
+          }
+
+          final backgroundCard = selectedAppBarCard ??
+              (suggestions.isNotEmpty
+                  ? suggestions[effectiveIndex.clamp(0, suggestions.length - 1)]
+                  : (cardService.dailyRegularCard ??
+                      cardService.dailyGameChangerCard ??
+                      cardService.dailyRegularLand ??
+                      cardService.dailyGameChangerLand));
 
           return RefreshIndicator(
             onRefresh: () async {
@@ -112,6 +128,14 @@ class _HomeScreenState extends State<HomeScreen> {
                             controller: _suggestionPageController,
                             itemCount: suggestions.isEmpty ? 1 : suggestions.length,
                             onPageChanged: (index) {
+                              final suggestionCard = suggestions.isNotEmpty
+                                  ? suggestions[index]
+                                  : null;
+
+                              if (suggestionCard != null) {
+                                cardService.setDailyAppBarCard(suggestionCard);
+                              }
+
                               setState(() {
                                 _suggestionIndex = index;
                               });

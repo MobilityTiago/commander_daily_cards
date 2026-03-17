@@ -73,7 +73,8 @@ class AppBarBackground extends StatelessWidget {
 
     final card = imageUrl != null
         ? null
-        : (cardService.dailyRegularCard ??
+        : (cardService.dailyAppBarCard ??
+            cardService.dailyRegularCard ??
             cardService.dailyGameChangerCard ??
             cardService.dailyRegularLand ??
             cardService.dailyGameChangerLand);

@@ -1,11 +1,9 @@
-import 'package:commander_deck/screens/navigation/navigation_screen.dart';
 import 'package:flutter/material.dart';
 import '../../widgets/app_bar.dart';
 import 'advanced_search_screen.dart';
 import 'package:provider/provider.dart';
 import '../../services/card_service.dart';
 import '../../models/cards/mtg_card.dart';
-import '../../widgets/app_drawer.dart';
 import '../../styles/colors.dart';
 import '../../widgets/card_zoom_view.dart';
 
@@ -37,7 +35,6 @@ class _CardSearchScreenState extends State<CardSearchScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      drawer: const AppDrawer(currentPage: NavigationScreen.routeSearch),
       appBar: const CommanderAppBar(
         title: 'Search Cards',
       ),

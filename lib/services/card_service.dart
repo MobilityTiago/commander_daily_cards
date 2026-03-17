@@ -19,6 +19,8 @@ class CardService extends ChangeNotifier {
   List<MTGCard> _allCards = [];
   List<MTGCard> _dailySuggestionCards = [];
 
+  String? _dailyAppBarCardId;
+
   bool get isLoading => _isLoading;
   MTGCard? get dailyRegularCard => _dailyRegularCard;
   MTGCard? get dailyGameChangerCard => _dailyGameChangerCard;
@@ -26,12 +28,34 @@ class CardService extends ChangeNotifier {
   MTGCard? get dailyGameChangerLand => _dailyGameChangerLand;
   List<MTGCard> get dailySuggestionCards => _dailySuggestionCards;
 
+  /// The card currently used as the app bar background across all screens.
+  ///
+  /// This is persisted to SharedPreferences so it stays consistent between
+  /// app restarts (until a new daily suggestion list is generated).
+  MTGCard? get dailyAppBarCard {
+    if (_dailyAppBarCardId != null) {
+      try {
+        return _dailySuggestionCards
+            .firstWhere((card) => card.id == _dailyAppBarCardId);
+      } catch (_) {
+        // Fallback if the stored card isn't in today's suggestion list.
+      }
+    }
+
+    // Fall back to the standard daily cards if we don't have a selected app bar card.
+    return _dailyRegularCard ??
+        _dailyGameChangerCard ??
+        _dailyRegularLand ??
+        _dailyGameChangerLand;
+  }
+
   static const String _lastUpdateKey = 'LastCardDataUpdate';
   static const String _dailyCardDateKey = 'LastDailyCardDate';
   static const String _regularCardKey = 'DailyRegularCard';
   static const String _gameChangerCardKey = 'DailyGameChangerCard';
   static const String _regularLandKey = 'DailyRegularLand';
   static const String _gameChangerLandKey = 'DailyGameChangerLand';
+  static const String _appBarCardKey = 'DailyAppBarCardId';
 
   Future<void> loadInitialData(SpellFilterSettings nonLandFilters, LandFilterSettings landFilters) async {
 
@@ -62,6 +86,29 @@ class CardService extends ChangeNotifier {
 
   Future<void> refreshDailyCards(SpellFilterSettings nonLandFilters, LandFilterSettings landFilters) async {
     await generateDailyCards(nonLandFilters, landFilters);
+  }
+
+  /// Sets the card used for app bar backgrounds across the app.
+  ///
+  /// This is persisted so the same card remains visible after restarting the app
+  /// until the daily suggestions update.
+  Future<void> setDailyAppBarCard(MTGCard? card) async {
+    _dailyAppBarCardId = card?.id;
+    await _saveAppBarCardId();
+    notifyListeners();
+  }
+
+  Future<void> _saveAppBarCardId() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (_dailyAppBarCardId != null) {
+        await prefs.setString(_appBarCardKey, _dailyAppBarCardId!);
+      } else {
+        await prefs.remove(_appBarCardKey);
+      }
+    } catch (e) {
+      debugPrint('Error saving app bar card id: $e');
+    }
   }
 
   /// Searches cards using the local cache.
@@ -644,16 +691,15 @@ class CardService extends ChangeNotifier {
       return;
     }
 
-    // Generate deterministic random based on current date
+    // Generate the daily suggestion list (used for the app bar image). This is
+    // deterministic and derived from the current date.
     final today = DateTime.now();
+    _buildDailySuggestionCards(today);
+
+    // Use the same deterministic seed for filtering so results are stable.
     final dateString =
         '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
-    final seed = dateString.hashCode;
-    final random = Random(seed);
-
-    // Also produce a stable, daily-shuffled list of suggestions ignoring filters.
-    final shuffledAllCards = List<MTGCard>.from(_allCards)..shuffle(random);
-    _dailySuggestionCards = shuffledAllCards.take(50).toList();
+    final random = Random(dateString.hashCode);
 
     final shuffledCards = List<MTGCard>.from(filteredCards)..shuffle(random);
     final shuffledLands = List<MTGCard>.from(filteredLands)..shuffle(random);
@@ -739,6 +785,12 @@ class CardService extends ChangeNotifier {
       if (gameChangerLandJson != null) {
         _dailyGameChangerLand = MTGCard.fromJson(json.decode(gameChangerLandJson));
       }
+
+      _dailyAppBarCardId = prefs.getString(_appBarCardKey);
+
+      // Ensure the daily suggestion list is rebuilt so app bar selection works
+      // consistently across app launches.
+      _buildDailySuggestionCards(DateTime.now());
     } catch (e) {
       debugPrint('Error loading saved daily cards: $e');
     }
@@ -777,8 +829,30 @@ class CardService extends ChangeNotifier {
           json.encode(_dailyGameChangerLand!.toJson()),
         );
       }
+
+      if (_dailyAppBarCardId != null) {
+        await prefs.setString(_appBarCardKey, _dailyAppBarCardId!);
+      } else {
+        await prefs.remove(_appBarCardKey);
+      }
     } catch (e) {
       debugPrint('Error saving daily cards: $e');
+    }
+  }
+
+  void _buildDailySuggestionCards(DateTime date) {
+    final dateString =
+        '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final seed = dateString.hashCode;
+    final random = Random(seed);
+    final shuffledAllCards = List<MTGCard>.from(_allCards)..shuffle(random);
+    _dailySuggestionCards = shuffledAllCards.take(50).toList();
+
+    if (_dailyAppBarCardId != null &&
+        _dailySuggestionCards.any((card) => card.id == _dailyAppBarCardId)) {
+      // keep existing selection
+    } else if (_dailySuggestionCards.isNotEmpty) {
+      _dailyAppBarCardId = _dailySuggestionCards.first.id;
     }
   }
 
