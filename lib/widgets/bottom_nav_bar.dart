@@ -40,6 +40,10 @@ class AppBottomNavBar extends StatelessWidget {
           label: 'Brackets',
         ),
         BottomNavigationBarItem(
+          icon: Icon(Icons.public),
+          label: 'Sites',
+        ),
+        BottomNavigationBarItem(
           icon: Icon(Icons.more_horiz),
           label: 'More',
         ),

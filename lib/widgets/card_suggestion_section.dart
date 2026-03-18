@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/cards/mtg_card.dart';
+import '../styles/colors.dart';
 import 'card_zoom_view.dart';
 
 class CardSuggestionSection extends StatelessWidget {
@@ -105,7 +106,7 @@ class CardSuggestionSection extends StatelessWidget {
                 child: Container(
                   padding: const EdgeInsets.all(4),
                   decoration: const BoxDecoration(
-                    color: Colors.red,
+                    color: AppColors.gameChangerOrange,
                     borderRadius: BorderRadius.only(
                       bottomRight: Radius.circular(12),
                     ),

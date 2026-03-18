@@ -21,9 +21,10 @@ class MTGCard {
   final double? usd;
   final double? eur;
   final double? tix;
-  final String? power;     // Added power field
+  final String? power; // Added power field
   final String? toughness; // Added toughness field
-  final String? loyalty;  // Added loyalty field
+  final String? loyalty; // Added loyalty field
+  final List<CardFace>? cardFaces;
 
   MTGCard({
     required this.id,
@@ -48,9 +49,10 @@ class MTGCard {
     this.usd,
     this.eur,
     this.tix,
-    this.power,     // Added to constructor
+    this.power, // Added to constructor
     this.toughness, // Added to constructor
-    this.loyalty,        // Added to constructor
+    this.loyalty, // Added to constructor
+    this.cardFaces,
   });
 
   factory MTGCard.fromJson(Map<String, dynamic> json) {
@@ -79,9 +81,15 @@ class MTGCard {
       usd: _parseDouble(json['prices']?['usd']),
       eur: _parseDouble(json['prices']?['eur']),
       tix: _parseDouble(json['prices']?['tix']),
-      power: _parseString(json['power']),     // Parse from JSON (string or number)
-      toughness: _parseString(json['toughness']), // Parse from JSON (string or number)
-      loyalty: _parseString(json['loyalty']),  // Parse from JSON (string or number)
+      power: _parseString(json['power']), // Parse from JSON (string or number)
+      toughness:
+          _parseString(json['toughness']), // Parse from JSON (string or number)
+      loyalty:
+          _parseString(json['loyalty']), // Parse from JSON (string or number)
+      cardFaces: (json['card_faces'] as List?)
+          ?.whereType<Map<String, dynamic>>()
+          .map(CardFace.fromJson)
+          .toList(),
     );
   }
 
@@ -111,14 +119,40 @@ class MTGCard {
         'eur': eur,
         'tix': tix,
       },
-      'power': power,         // Add to JSON
+      'power': power, // Add to JSON
       'toughness': toughness, // Add to JSON
-      'loyalty': loyalty,        // Add to JSON
+      'loyalty': loyalty, // Add to JSON
+      'card_faces': cardFaces?.map((f) => f.toJson()).toList(),
     };
   }
 
   String? get imageUrl {
-    return imageUris?.normal ?? imageUris?.small;
+    return mainFaceImageUrl;
+  }
+
+  String? get mainFaceImageUrl {
+    final firstFace =
+        (cardFaces != null && cardFaces!.isNotEmpty) ? cardFaces!.first : null;
+
+    return imageUris?.normal ??
+        imageUris?.large ??
+        imageUris?.small ??
+        firstFace?.imageUris?.normal ??
+        firstFace?.imageUris?.large ??
+        firstFace?.imageUris?.small;
+  }
+
+  bool get hasDoubleFacedImages {
+    final faces = cardFaces;
+    if (faces == null || faces.length < 2) return false;
+
+    final firstHasImage = faces[0].imageUris?.normal != null ||
+        faces[0].imageUris?.large != null ||
+        faces[0].imageUris?.small != null;
+    final secondHasImage = faces[1].imageUris?.normal != null ||
+        faces[1].imageUris?.large != null ||
+        faces[1].imageUris?.small != null;
+    return firstHasImage && secondHasImage;
   }
 
   bool get isCommanderLegal {
@@ -156,17 +190,55 @@ class MTGCard {
   }
 }
 
+class CardFace {
+  final String? name;
+  final String? manaCost;
+  final String? typeLine;
+  final String? oracleText;
+  final ImageUris? imageUris;
+
+  CardFace({
+    this.name,
+    this.manaCost,
+    this.typeLine,
+    this.oracleText,
+    this.imageUris,
+  });
+
+  factory CardFace.fromJson(Map<String, dynamic> json) {
+    return CardFace(
+      name: json['name'],
+      manaCost: json['mana_cost'],
+      typeLine: json['type_line'],
+      oracleText: json['oracle_text'],
+      imageUris: json['image_uris'] != null
+          ? ImageUris.fromJson(json['image_uris'])
+          : null,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'name': name,
+      'mana_cost': manaCost,
+      'type_line': typeLine,
+      'oracle_text': oracleText,
+      'image_uris': imageUris?.toJson(),
+    };
+  }
+}
+
 class ImageUris {
   final String? small;
   final String? normal;
   final String? large;
-  final String? artCrop;  // Added art_crop field
+  final String? artCrop; // Added art_crop field
 
   ImageUris({
     this.small,
     this.normal,
     this.large,
-    this.artCrop,  // Added to constructor
+    this.artCrop, // Added to constructor
   });
 
   factory ImageUris.fromJson(Map<String, dynamic> json) {
@@ -174,7 +246,7 @@ class ImageUris {
       small: json['small'],
       normal: json['normal'],
       large: json['large'],
-      artCrop: json['art_crop'],  // Parse from JSON
+      artCrop: json['art_crop'], // Parse from JSON
     );
   }
 
@@ -183,7 +255,7 @@ class ImageUris {
       'small': small,
       'normal': normal,
       'large': large,
-      'art_crop': artCrop,  // Add to JSON
+      'art_crop': artCrop, // Add to JSON
     };
   }
 }

@@ -28,6 +28,7 @@ class CardService extends ChangeNotifier {
   MTGCard? get dailyRegularLand => _dailyRegularLand;
   MTGCard? get dailyGameChangerLand => _dailyGameChangerLand;
   List<MTGCard> get dailySuggestionCards => _dailySuggestionCards;
+  List<MTGCard> get allCards => List.unmodifiable(_allCards);
 
   /// All cards in the local dataset that are marked as Game Changers.
   List<MTGCard> get allGameChangerCards =>

@@ -32,6 +32,7 @@ class CommanderDeckApp extends StatelessWidget {
             case NavigationScreen.routeSearch:
             case NavigationScreen.routeLandGuide:
             case NavigationScreen.routeBrackets:
+            case NavigationScreen.routeSites:
             case NavigationScreen.routeMore:
               return MaterialPageRoute(
                 builder: (context) => NavigationScreen(

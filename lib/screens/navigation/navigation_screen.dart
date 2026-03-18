@@ -3,6 +3,7 @@ import '../home/home_screen.dart';
 import '../card_search/card_search_screen.dart';
 import '../land_guide/land_guide_screen.dart';
 import '../brackets/brackets_screen.dart';
+import '../sites/sites_screen.dart';
 import '../more/more_screen.dart';
 import '../../widgets/bottom_nav_bar.dart';
 
@@ -15,6 +16,7 @@ class NavigationScreen extends StatefulWidget {
   static const String routeSearch = '/search';
   static const String routeLandGuide = '/land-guide';
   static const String routeBrackets = '/brackets';
+  static const String routeSites = '/sites';
   static const String routeMore = '/more';
   static const String routeSupport = '/support';
   static const String routeAcknowledgements = '/acknowledgements';
@@ -36,6 +38,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
     NavigationScreen.routeSearch,
     NavigationScreen.routeLandGuide,
     NavigationScreen.routeBrackets,
+    NavigationScreen.routeSites,
     NavigationScreen.routeMore,
   ];
 
@@ -67,6 +70,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
           CardSearchScreen(),
           LandGuideScreen(),
           BracketsScreen(),
+          SitesScreen(),
           MoreScreen(),
         ],
       ),

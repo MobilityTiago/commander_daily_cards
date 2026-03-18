@@ -10,6 +10,7 @@ import '../../models/cards/card_enums.dart';
 import '../../models/cards/mtg_card.dart';
 import '../../services/card_service.dart';
 import '../../services/symbol_service.dart';
+import '../../styles/colors.dart';
 import '../../widgets/mana_symbol_label.dart';
 
 class AdvancedSearchScreen extends StatefulWidget {
@@ -1063,7 +1064,7 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
                               width: 22,
                               height: 22,
                               decoration: const BoxDecoration(
-                                color: Color(0xFFFF0000),
+                                color: AppColors.gameChangerOrange,
                                 borderRadius: BorderRadius.only(
                                   topLeft: Radius.circular(2),
                                   bottomRight: Radius.circular(8),
@@ -1171,7 +1172,7 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
                               width: 20,
                               height: 20,
                               decoration: const BoxDecoration(
-                                color: Color(0xFFFF0000),
+                                color: AppColors.gameChangerOrange,
                                 borderRadius: BorderRadius.only(
                                   topLeft: Radius.circular(2),
                                   bottomRight: Radius.circular(8),

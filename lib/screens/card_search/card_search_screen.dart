@@ -7,7 +7,6 @@ import '../../models/cards/mtg_card.dart';
 import '../../styles/colors.dart';
 import '../../widgets/card_zoom_view.dart';
 
-
 class CardSearchScreen extends StatefulWidget {
   const CardSearchScreen({super.key});
 
@@ -53,7 +52,7 @@ class _CardSearchScreenState extends State<CardSearchScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                                Row(
+                Row(
                   children: [
                     Expanded(
                       child: TextField(
@@ -136,7 +135,8 @@ class _CardSearchScreenState extends State<CardSearchScreen> {
                                   cards: _searchResults,
                                   initialIndex: index,
                                 ),
-                                transitionsBuilder: (context, animation, _, child) {
+                                transitionsBuilder:
+                                    (context, animation, _, child) {
                                   return FadeTransition(
                                     opacity: animation,
                                     child: child,
@@ -193,7 +193,7 @@ class _CardSearchScreenState extends State<CardSearchScreen> {
                             width: 20,
                             height: 20,
                             decoration: const BoxDecoration(
-                              color: AppColors.red,
+                              color: AppColors.gameChangerOrange,
                               borderRadius: BorderRadius.only(
                                 topLeft: Radius.circular(2),
                                 bottomRight: Radius.circular(8),

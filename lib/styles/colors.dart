@@ -15,6 +15,7 @@ class AppColors {
   // Theme colors
   static const darkRed = Color(0xFF3D0000);
   static const red = Color(0xFFFF4444);
+  static const gameChangerOrange = Color(0xFFFFA726);
   
   // Button states
   static const pressedRed = Color(0xFF2D0000);
