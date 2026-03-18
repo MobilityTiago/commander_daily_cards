@@ -130,6 +130,24 @@ class CardService extends ChangeNotifier {
     await generateDailyCards(nonLandFilters, landFilters);
   }
 
+  /// Ensures the local card catalog is loaded for screens that depend on
+  /// [_allCards] but do not run the full daily-card initialization flow.
+  Future<void> ensureCardCatalogLoaded() async {
+    if (_allCards.isNotEmpty) return;
+
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      await _ensureCardDataLoadedForStartup();
+    } catch (e) {
+      debugPrint('Error ensuring card catalog is loaded: $e');
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
   /// Sets the card used for app bar backgrounds across the app.
   ///
   /// This is persisted so the same card remains visible after restarting the app

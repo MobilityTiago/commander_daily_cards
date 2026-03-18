@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 
@@ -19,10 +20,24 @@ class LandGuideScreen extends StatefulWidget {
 class _LandGuideScreenState extends State<LandGuideScreen> {
   final Set<String> _selectedDualPairs = {};
   final Set<String> _selectedDualFamilies = {};
+  final Set<String> _selectedTriCombos = {};
   final Set<String> _selectedTriFamilies = {};
   final Set<String> _selectedMultiFamilies = {};
+  final Set<String> _selectedMonoColors = {};
   final Set<String> _selectedMonoFamilies = {};
+  final Set<String> _selectedColorlessModes = {};
   final Set<String> _selectedColorlessFamilies = {};
+  bool _showChipFilters = true;
+  double _scrollAccumulator = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await context.read<CardService>().ensureCardCatalogLoaded();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -69,32 +84,61 @@ class _LandGuideScreenState extends State<LandGuideScreen> {
                       .toList(),
               _selectedDualFamilies,
             );
-            final filteredTriLands = _filterByFamilies(
-              triLands,
+            final filteredTriLands = _selectedTriCombos.isEmpty
+                ? triLands
+                : triLands
+                    .where(
+                      (card) => _selectedTriCombos.contains(
+                        _manaComboKey(_coloredProducedMana(card)),
+                      ),
+                    )
+                    .toList();
+            final triLandsWithFamilies = _filterByFamilies(
+              filteredTriLands,
               _selectedTriFamilies,
             );
             final filteredMultiLands = _filterByFamilies(
               multiLands,
               _selectedMultiFamilies,
             );
-            final filteredMonoLands = _filterByFamilies(
-              monoLands,
+            final filteredMonoLands = _selectedMonoColors.isEmpty
+                ? monoLands
+                : monoLands
+                    .where(
+                      (card) => _selectedMonoColors
+                          .contains(_coloredProducedMana(card).first),
+                    )
+                    .toList();
+            final monoLandsWithFamilies = _filterByFamilies(
+              filteredMonoLands,
               _selectedMonoFamilies,
             );
-            final filteredColorlessLands = _filterByFamilies(
-              colorlessLands,
+            final filteredColorlessLands = _selectedColorlessModes.isEmpty
+                ? colorlessLands
+                : colorlessLands.where((card) {
+                    final produced = _producedManaSymbols(card);
+                    final hasColorless = produced.contains('C');
+                    final hasNoMana = produced.isEmpty;
+                    return (_selectedColorlessModes.contains('C') &&
+                            hasColorless) ||
+                        (_selectedColorlessModes.contains('NO_MANA') &&
+                            hasNoMana);
+                  }).toList();
+            final colorlessLandsWithFamilies = _filterByFamilies(
+              filteredColorlessLands,
               _selectedColorlessFamilies,
             );
 
             return Column(
               children: [
                 Container(
-                  color: Colors.black.withValues(alpha: 0.12),
+                  color: AppColors.black,
                   child: const TabBar(
                     isScrollable: true,
+                    indicatorColor: Colors.white,
                     labelColor: Colors.white,
                     unselectedLabelColor: Colors.white70,
-                    indicatorColor: AppColors.red,
+                    labelStyle: TextStyle(fontSize: 12),
                     tabs: [
                       Tab(text: 'Dual Lands'),
                       Tab(text: 'Tri Lands'),
@@ -110,8 +154,10 @@ class _LandGuideScreenState extends State<LandGuideScreen> {
                       _DualLandTab(
                         lands: filteredDualLands,
                         allLands: dualLands,
+                        showChipFilters: _showChipFilters,
                         selectedPairs: _selectedDualPairs,
                         selectedFamilies: _selectedDualFamilies,
+                        onGridScroll: _handleGridScroll,
                         onTogglePair: (pairKey) {
                           setState(() {
                             if (_selectedDualPairs.contains(pairKey)) {
@@ -123,59 +169,73 @@ class _LandGuideScreenState extends State<LandGuideScreen> {
                         },
                         onToggleFamily: (familyKey) {
                           setState(() {
-                            _toggleFamily(_selectedDualFamilies, familyKey);
+                            _toggleSelection(_selectedDualFamilies, familyKey);
                           });
                         },
                       ),
-                      _LandGridTab(
-                        title: 'Tri-color lands',
-                        subtitle:
-                            '${triLands.length} lands that produce exactly three colors',
-                        lands: filteredTriLands,
+                      _TriLandTab(
+                        lands: triLandsWithFamilies,
                         allLands: triLands,
+                        showChipFilters: _showChipFilters,
+                        selectedCombos: _selectedTriCombos,
                         selectedFamilies: _selectedTriFamilies,
+                        onGridScroll: _handleGridScroll,
+                        onToggleCombo: (comboKey) {
+                          setState(() {
+                            _toggleSelection(_selectedTriCombos, comboKey);
+                          });
+                        },
                         onToggleFamily: (familyKey) {
                           setState(() {
-                            _toggleFamily(_selectedTriFamilies, familyKey);
+                            _toggleSelection(_selectedTriFamilies, familyKey);
                           });
                         },
                       ),
                       _LandGridTab(
-                        title: 'Multi-color lands',
-                        subtitle:
-                            '${multiLands.length} lands that produce four or five colors',
                         lands: filteredMultiLands,
                         allLands: multiLands,
+                        showChipFilters: _showChipFilters,
                         selectedFamilies: _selectedMultiFamilies,
+                        onGridScroll: _handleGridScroll,
                         onToggleFamily: (familyKey) {
                           setState(() {
-                            _toggleFamily(_selectedMultiFamilies, familyKey);
+                            _toggleSelection(_selectedMultiFamilies, familyKey);
                           });
                         },
                       ),
-                      _LandGridTab(
-                        title: 'Mono-color lands',
-                        subtitle:
-                            '${monoLands.length} lands that produce exactly one color',
-                        lands: filteredMonoLands,
+                      _MonoLandTab(
+                        lands: monoLandsWithFamilies,
                         allLands: monoLands,
+                        showChipFilters: _showChipFilters,
+                        selectedColors: _selectedMonoColors,
                         selectedFamilies: _selectedMonoFamilies,
+                        onGridScroll: _handleGridScroll,
+                        onToggleColor: (color) {
+                          setState(() {
+                            _toggleSelection(_selectedMonoColors, color);
+                          });
+                        },
                         onToggleFamily: (familyKey) {
                           setState(() {
-                            _toggleFamily(_selectedMonoFamilies, familyKey);
+                            _toggleSelection(_selectedMonoFamilies, familyKey);
                           });
                         },
                       ),
-                      _LandGridTab(
-                        title: 'Colorless lands',
-                        subtitle:
-                            '${colorlessLands.length} lands with no colored mana production',
-                        lands: filteredColorlessLands,
+                      _ColorlessLandTab(
+                        lands: colorlessLandsWithFamilies,
                         allLands: colorlessLands,
+                        showChipFilters: _showChipFilters,
+                        selectedModes: _selectedColorlessModes,
                         selectedFamilies: _selectedColorlessFamilies,
+                        onGridScroll: _handleGridScroll,
+                        onToggleMode: (mode) {
+                          setState(() {
+                            _toggleSelection(_selectedColorlessModes, mode);
+                          });
+                        },
                         onToggleFamily: (familyKey) {
                           setState(() {
-                            _toggleFamily(
+                            _toggleSelection(
                                 _selectedColorlessFamilies, familyKey);
                           });
                         },
@@ -191,30 +251,71 @@ class _LandGuideScreenState extends State<LandGuideScreen> {
     );
   }
 
-  void _toggleFamily(Set<String> selectedFamilies, String familyKey) {
-    if (selectedFamilies.contains(familyKey)) {
-      selectedFamilies.remove(familyKey);
+  void _toggleSelection(Set<String> selectedValues, String value) {
+    if (selectedValues.contains(value)) {
+      selectedValues.remove(value);
     } else {
-      selectedFamilies.add(familyKey);
+      selectedValues.add(value);
+    }
+  }
+
+  void _handleGridScroll(ScrollUpdateNotification notification) {
+    final pixels = notification.metrics.pixels;
+    if (pixels <= 0) {
+      _scrollAccumulator = 0;
+      if (!_showChipFilters) {
+        setState(() {
+          _showChipFilters = true;
+        });
+      }
+      return;
+    }
+
+    final delta = notification.scrollDelta ?? 0;
+    if (delta == 0) return;
+
+    // Use a small hysteresis window so tiny finger jitter won't flicker filters.
+    if (_scrollAccumulator == 0 ||
+        (_scrollAccumulator.isNegative != delta.isNegative)) {
+      _scrollAccumulator = delta;
+    } else {
+      _scrollAccumulator += delta;
+    }
+
+    const threshold = 24.0;
+    if (_scrollAccumulator > threshold && _showChipFilters) {
+      _scrollAccumulator = 0;
+      setState(() {
+        _showChipFilters = false;
+      });
+    } else if (_scrollAccumulator < -threshold && !_showChipFilters) {
+      _scrollAccumulator = 0;
+      setState(() {
+        _showChipFilters = true;
+      });
     }
   }
 }
 
-class _DualLandTab extends StatelessWidget {
+class _TriLandTab extends StatelessWidget {
   final List<MTGCard> lands;
   final List<MTGCard> allLands;
-  final Set<String> selectedPairs;
+  final bool showChipFilters;
+  final Set<String> selectedCombos;
   final Set<String> selectedFamilies;
-  final ValueChanged<String> onTogglePair;
+  final ValueChanged<String> onToggleCombo;
   final ValueChanged<String> onToggleFamily;
+  final ValueChanged<ScrollUpdateNotification> onGridScroll;
 
-  const _DualLandTab({
+  const _TriLandTab({
     required this.lands,
     required this.allLands,
-    required this.selectedPairs,
+    required this.showChipFilters,
+    required this.selectedCombos,
     required this.selectedFamilies,
-    required this.onTogglePair,
+    required this.onToggleCombo,
     required this.onToggleFamily,
+    required this.onGridScroll,
   });
 
   @override
@@ -222,52 +323,110 @@ class _DualLandTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-          child: Text(
-            '${lands.length} dual lands',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
+        _CollapsibleChipSection(
+          visible: showChipFilters,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _triColorCombos.map((combo) {
+                    final key = _manaComboKey(combo);
+                    return FilterChip(
+                      label: _ManaPairLabel(symbols: combo),
+                      showCheckmark: false,
+                      selected: selectedCombos.contains(key),
+                      onSelected: (_) => onToggleCombo(key),
+                    );
+                  }).toList(),
                 ),
+              ),
+              const _ChipSectionDivider(),
+              _LandFamilyFilters(
+                lands: allLands,
+                selectedFamilies: selectedFamilies,
+                onToggleFamily: onToggleFamily,
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 8),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _dualColorPairs.map((pair) {
-              final pairKey = _manaPairKey(pair);
-              final isSelected = selectedPairs.contains(pairKey);
-              return FilterChip(
-                selected: isSelected,
-                showCheckmark: false,
-                selectedColor: AppColors.darkRed,
-                backgroundColor: Colors.white.withValues(alpha: 0.06),
-                side: BorderSide(
-                  color: isSelected ? AppColors.red : Colors.white24,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                label: _ManaPairLabel(symbols: pair),
-                onSelected: (_) => onTogglePair(pairKey),
-              );
-            }).toList(),
+        const SizedBox(height: 12),
+        Expanded(
+          child: _LandGrid(
+            lands: lands,
+            emptyMessage: 'No tri lands match the selected color combinations.',
+            onUserScroll: onGridScroll,
           ),
         ),
-        _LandFamilyFilters(
-          lands: allLands,
-          selectedFamilies: selectedFamilies,
-          onToggleFamily: onToggleFamily,
+      ],
+    );
+  }
+}
+
+class _DualLandTab extends StatelessWidget {
+  final List<MTGCard> lands;
+  final List<MTGCard> allLands;
+  final bool showChipFilters;
+  final Set<String> selectedPairs;
+  final Set<String> selectedFamilies;
+  final ValueChanged<String> onTogglePair;
+  final ValueChanged<String> onToggleFamily;
+  final ValueChanged<ScrollUpdateNotification> onGridScroll;
+
+  const _DualLandTab({
+    required this.lands,
+    required this.allLands,
+    required this.showChipFilters,
+    required this.selectedPairs,
+    required this.selectedFamilies,
+    required this.onTogglePair,
+    required this.onToggleFamily,
+    required this.onGridScroll,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _CollapsibleChipSection(
+          visible: showChipFilters,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _dualColorPairs.map((pair) {
+                    final pairKey = _manaPairKey(pair);
+                    final isSelected = selectedPairs.contains(pairKey);
+                    return FilterChip(
+                      label: _ManaPairLabel(symbols: pair),
+                      showCheckmark: false,
+                      selected: isSelected,
+                      onSelected: (_) => onTogglePair(pairKey),
+                    );
+                  }).toList(),
+                ),
+              ),
+              const _ChipSectionDivider(),
+              _LandFamilyFilters(
+                lands: allLands,
+                selectedFamilies: selectedFamilies,
+                onToggleFamily: onToggleFamily,
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 12),
         Expanded(
           child: _LandGrid(
             lands: lands,
             emptyMessage: 'No dual lands match the selected color pairs.',
+            onUserScroll: onGridScroll,
           ),
         ),
       ],
@@ -276,20 +435,20 @@ class _DualLandTab extends StatelessWidget {
 }
 
 class _LandGridTab extends StatelessWidget {
-  final String title;
-  final String subtitle;
   final List<MTGCard> lands;
-  final List<MTGCard> allLands;
-  final Set<String> selectedFamilies;
-  final ValueChanged<String> onToggleFamily;
+  final bool showChipFilters;
+  final List<MTGCard>? allLands;
+  final Set<String>? selectedFamilies;
+  final ValueChanged<String>? onToggleFamily;
+  final ValueChanged<ScrollUpdateNotification> onGridScroll;
 
   const _LandGridTab({
-    required this.title,
-    required this.subtitle,
     required this.lands,
-    required this.allLands,
-    required this.selectedFamilies,
-    required this.onToggleFamily,
+    required this.showChipFilters,
+    required this.onGridScroll,
+    this.allLands,
+    this.selectedFamilies,
+    this.onToggleFamily,
   });
 
   @override
@@ -297,32 +456,162 @@ class _LandGridTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-          child: Text(
-            title,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                ),
+        if (allLands != null &&
+            selectedFamilies != null &&
+            onToggleFamily != null)
+          _CollapsibleChipSection(
+            visible: showChipFilters,
+            child: _LandFamilyFilters(
+              lands: allLands!,
+              selectedFamilies: selectedFamilies!,
+              onToggleFamily: onToggleFamily!,
+            ),
           ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
-          child: Text(
-            subtitle,
-            style: const TextStyle(color: Colors.white70),
-          ),
-        ),
-        _LandFamilyFilters(
-          lands: allLands,
-          selectedFamilies: selectedFamilies,
-          onToggleFamily: onToggleFamily,
-        ),
         Expanded(
           child: _LandGrid(
             lands: lands,
             emptyMessage: 'No lands found in this category.',
+            onUserScroll: onGridScroll,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MonoLandTab extends StatelessWidget {
+  final List<MTGCard> lands;
+  final List<MTGCard> allLands;
+  final bool showChipFilters;
+  final Set<String> selectedColors;
+  final Set<String> selectedFamilies;
+  final ValueChanged<String> onToggleColor;
+  final ValueChanged<String> onToggleFamily;
+  final ValueChanged<ScrollUpdateNotification> onGridScroll;
+
+  const _MonoLandTab({
+    required this.lands,
+    required this.allLands,
+    required this.showChipFilters,
+    required this.selectedColors,
+    required this.selectedFamilies,
+    required this.onToggleColor,
+    required this.onToggleFamily,
+    required this.onGridScroll,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _CollapsibleChipSection(
+          visible: showChipFilters,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _wubrgOrder.map((symbol) {
+                    return FilterChip(
+                      label: _ManaPairLabel(symbols: [symbol]),
+                      showCheckmark: false,
+                      selected: selectedColors.contains(symbol),
+                      onSelected: (_) => onToggleColor(symbol),
+                    );
+                  }).toList(),
+                ),
+              ),
+              const _ChipSectionDivider(),
+              _LandFamilyFilters(
+                lands: allLands,
+                selectedFamilies: selectedFamilies,
+                onToggleFamily: onToggleFamily,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Expanded(
+          child: _LandGrid(
+            lands: lands,
+            emptyMessage: 'No mono lands match the selected colors.',
+            onUserScroll: onGridScroll,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ColorlessLandTab extends StatelessWidget {
+  final List<MTGCard> lands;
+  final List<MTGCard> allLands;
+  final bool showChipFilters;
+  final Set<String> selectedModes;
+  final Set<String> selectedFamilies;
+  final ValueChanged<String> onToggleMode;
+  final ValueChanged<String> onToggleFamily;
+  final ValueChanged<ScrollUpdateNotification> onGridScroll;
+
+  const _ColorlessLandTab({
+    required this.lands,
+    required this.allLands,
+    required this.showChipFilters,
+    required this.selectedModes,
+    required this.selectedFamilies,
+    required this.onToggleMode,
+    required this.onToggleFamily,
+    required this.onGridScroll,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _CollapsibleChipSection(
+          visible: showChipFilters,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilterChip(
+                      label: _ManaPairLabel(symbols: const ['C']),
+                      showCheckmark: false,
+                      selected: selectedModes.contains('C'),
+                      onSelected: (_) => onToggleMode('C'),
+                    ),
+                    FilterChip(
+                      label: const Text('No mana'),
+                      showCheckmark: false,
+                      selected: selectedModes.contains('NO_MANA'),
+                      onSelected: (_) => onToggleMode('NO_MANA'),
+                    ),
+                  ],
+                ),
+              ),
+              const _ChipSectionDivider(),
+              _LandFamilyFilters(
+                lands: allLands,
+                selectedFamilies: selectedFamilies,
+                onToggleFamily: onToggleFamily,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Expanded(
+          child: _LandGrid(
+            lands: lands,
+            emptyMessage: 'No lands match the selected colorless filters.',
+            onUserScroll: onGridScroll,
           ),
         ),
       ],
@@ -358,12 +647,8 @@ class _LandFamilyFilters extends StatelessWidget {
           final isSelected = selectedFamilies.contains(family.key);
           return FilterChip(
             label: Text(family.label),
+            showCheckmark: false,
             selected: isSelected,
-            selectedColor: AppColors.darkRed,
-            backgroundColor: Colors.white.withValues(alpha: 0.06),
-            side: BorderSide(
-              color: isSelected ? AppColors.red : Colors.white24,
-            ),
             onSelected: (_) => onToggleFamily(family.key),
           );
         }).toList(),
@@ -372,13 +657,31 @@ class _LandFamilyFilters extends StatelessWidget {
   }
 }
 
+class _ChipSectionDivider extends StatelessWidget {
+  const _ChipSectionDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+      child: Divider(
+        height: 1,
+        thickness: 1,
+        color: Colors.white.withValues(alpha: 0.16),
+      ),
+    );
+  }
+}
+
 class _LandGrid extends StatelessWidget {
   final List<MTGCard> lands;
   final String emptyMessage;
+  final ValueChanged<ScrollUpdateNotification>? onUserScroll;
 
   const _LandGrid({
     required this.lands,
     required this.emptyMessage,
+    this.onUserScroll,
   });
 
   @override
@@ -396,22 +699,66 @@ class _LandGrid extends StatelessWidget {
       );
     }
 
-    return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-        childAspectRatio: 0.72,
-      ),
-      itemCount: lands.length,
-      itemBuilder: (context, index) {
-        return _LandCardTile(
-          card: lands[index],
-          cards: lands,
-          initialIndex: index,
-        );
+    return NotificationListener<ScrollUpdateNotification>(
+      onNotification: (notification) {
+        onUserScroll?.call(notification);
+        return false;
       },
+      child: GridView.builder(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          childAspectRatio: 0.715,
+          crossAxisSpacing: 16,
+          mainAxisSpacing: 16,
+        ),
+        itemCount: lands.length,
+        itemBuilder: (context, index) {
+          return _LandCardTile(
+            card: lands[index],
+            cards: lands,
+            initialIndex: index,
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _CollapsibleChipSection extends StatelessWidget {
+  final bool visible;
+  final Widget child;
+
+  const _CollapsibleChipSection({
+    required this.visible,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRect(
+      child: AnimatedSize(
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeInOutCubic,
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeInOutCubic,
+          opacity: visible ? 1 : 0,
+          child: AnimatedSlide(
+            duration: const Duration(milliseconds: 260),
+            curve: Curves.easeInOutCubic,
+            offset: visible ? Offset.zero : const Offset(0, -0.08),
+            child: Align(
+              alignment: Alignment.topCenter,
+              heightFactor: visible ? 1 : 0,
+              child: IgnorePointer(
+                ignoring: !visible,
+                child: child,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -430,95 +777,95 @@ class _LandCardTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final imageUrl = card.mainFaceImageUrl;
-    final manaSymbols = _producedManaSymbols(card);
 
     return Card(
-      color: AppColors.lightGrey,
       clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: imageUrl == null
-            ? null
-            : () {
-                Navigator.of(context).push(
-                  PageRouteBuilder(
-                    opaque: false,
-                    pageBuilder: (context, _, __) => CardZoomView(
-                      cards: cards,
-                      initialIndex: initialIndex,
-                    ),
-                    transitionsBuilder: (context, animation, _, child) {
-                      return FadeTransition(opacity: animation, child: child);
-                    },
-                  ),
-                );
-              },
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: imageUrl != null
-                  ? Image.network(
-                      imageUrl,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                    )
-                  : Container(
-                      color: Colors.black26,
-                      alignment: Alignment.center,
-                      child: const Icon(
-                        Icons.landscape,
-                        color: Colors.white54,
-                        size: 36,
+      child: Stack(
+        children: [
+          InkWell(
+            onTap: imageUrl == null
+                ? null
+                : () {
+                    Navigator.of(context).push(
+                      PageRouteBuilder(
+                        opaque: false,
+                        pageBuilder: (context, _, __) => CardZoomView(
+                          cards: cards,
+                          initialIndex: initialIndex,
+                        ),
+                        transitionsBuilder: (context, animation, _, child) {
+                          return FadeTransition(
+                              opacity: animation, child: child);
+                        },
                       ),
+                    );
+                  },
+            child: imageUrl != null
+                ? Image.network(
+                    imageUrl,
+                    fit: BoxFit.cover,
+                  )
+                : const Center(
+                    child: Icon(
+                      Icons.broken_image,
+                      size: 48,
+                      color: AppColors.darkGrey,
                     ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    card.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                  ),
+          ),
+          if (card.legalities['commander'] == 'banned')
+            Positioned(
+              top: 0,
+              left: 0,
+              child: Container(
+                width: 26,
+                height: 20,
+                decoration: const BoxDecoration(
+                  color: Colors.red,
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(2),
+                    bottomRight: Radius.circular(8),
+                  ),
+                ),
+                child: const Center(
+                  child: Text(
+                    'BAN',
+                    style: TextStyle(
                       color: Colors.white,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 9,
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    card.typeLine ?? 'Land',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
+                ),
+              ),
+            )
+          else if (card.gameChanger)
+            Positioned(
+              top: 0,
+              left: 0,
+              child: Container(
+                width: 20,
+                height: 20,
+                decoration: const BoxDecoration(
+                  color: AppColors.gameChangerOrange,
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(2),
+                    bottomRight: Radius.circular(8),
+                  ),
+                ),
+                child: const Center(
+                  child: Text(
+                    'GC',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 10,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  if (manaSymbols.isEmpty)
-                    const Text(
-                      'No colored mana',
-                      style: TextStyle(
-                        color: Colors.white60,
-                        fontSize: 12,
-                      ),
-                    )
-                  else
-                    Wrap(
-                      spacing: 4,
-                      runSpacing: 4,
-                      children: manaSymbols
-                          .map((symbol) =>
-                              _ManaSymbolToken(symbol: symbol, size: 18))
-                          .toList(),
-                    ),
-                ],
+                ),
               ),
             ),
-          ],
-        ),
+        ],
       ),
     );
   }
@@ -608,6 +955,19 @@ const List<List<String>> _dualColorPairs = [
   ['G', 'U'],
 ];
 
+const List<List<String>> _triColorCombos = [
+  ['W', 'U', 'B'],
+  ['W', 'U', 'R'],
+  ['W', 'U', 'G'],
+  ['W', 'B', 'R'],
+  ['W', 'B', 'G'],
+  ['W', 'R', 'G'],
+  ['U', 'B', 'R'],
+  ['U', 'B', 'G'],
+  ['U', 'R', 'G'],
+  ['B', 'R', 'G'],
+];
+
 List<MTGCard> _uniqueLands(List<MTGCard> cards) {
   final uniqueByName = <String, MTGCard>{};
   for (final card in cards) {
@@ -659,6 +1019,10 @@ List<String> _coloredProducedMana(MTGCard card) {
 }
 
 String _manaPairKey(List<String> symbols) {
+  return _sortManaSymbols(symbols).join();
+}
+
+String _manaComboKey(List<String> symbols) {
   return _sortManaSymbols(symbols).join();
 }
 
