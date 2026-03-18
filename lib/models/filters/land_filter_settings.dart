@@ -20,6 +20,7 @@ static const Set<String> availableLandTypes = {
   };
 
   final Set<MTGColor> _producedMana = Set.from(MTGColor.values);
+  List<String>? _commanderIdentityLock;
   final Set<String> _selectedLandTypes = Set.from(availableLandTypes);  // Initialize with all types selected
 
   bool _fetchLands = true;
@@ -34,6 +35,9 @@ static const Set<String> availableLandTypes = {
   bool get shockLands => _shockLands;
   bool get dualLands => _dualLands;
   bool get utilityLands => _utilityLands;
+  bool get isCommanderLocked => _commanderIdentityLock != null;
+  List<String> get commanderIdentityLock =>
+      List.unmodifiable(_commanderIdentityLock ?? const <String>[]);
 
   void toggleLandType(String landType) {
     if (_selectedLandTypes.contains(landType)) {
@@ -90,9 +94,12 @@ static const Set<String> availableLandTypes = {
           return card.typeLine?.contains(type) == true;
         });
 
-    final producedManaMatches = _producedMana.isEmpty ||
+    final producedManaMatches = isCommanderLocked
+      ? _isIdentitySubsetOfCommander(card.colorIdentity ?? [])
+      : _producedMana.isEmpty ||
         (card.producedMana?.any((mana) =>
-            _producedMana.any((selected) => selected.symbol == mana)) ?? false);
+            _producedMana.any((selected) => selected.symbol == mana)) ??
+          false);
 
     final specialLandMatches = _checkSpecialLandType(card);
 
@@ -135,4 +142,54 @@ static const Set<String> availableLandTypes = {
       oracleText.contains('destroy') ||
       oracleText.contains('counter') ||
       oracleText.contains('draw a card');
+
+  bool _isIdentitySubsetOfCommander(List<String> cardIdentity) {
+    final allowed = _commanderIdentityLock;
+    if (allowed == null) return true;
+    return cardIdentity.every(allowed.contains);
+  }
+
+  void setProducedManaFromIdentity(List<String> colorIdentity) {
+    _producedMana.clear();
+    if (colorIdentity.isEmpty) {
+      _producedMana.add(MTGColor.colorless);
+    } else {
+      for (final symbol in colorIdentity) {
+        final match =
+            MTGColor.values.where((c) => c.symbol == symbol).firstOrNull;
+        if (match != null) _producedMana.add(match);
+      }
+      // Always include colorless so utility lands still pass the filter.
+      _producedMana.add(MTGColor.colorless);
+    }
+    notifyListeners();
+  }
+
+  void lockToCommanderIdentity(List<String> colorIdentity) {
+    _commanderIdentityLock = List<String>.from(colorIdentity);
+    _producedMana.clear();
+    if (colorIdentity.isEmpty) {
+      _producedMana.add(MTGColor.colorless);
+    } else {
+      for (final symbol in colorIdentity) {
+        final match =
+            MTGColor.values.where((c) => c.symbol == symbol).firstOrNull;
+        if (match != null) _producedMana.add(match);
+      }
+      _producedMana.add(MTGColor.colorless);
+    }
+    notifyListeners();
+  }
+
+  void unlockCommanderIdentity() {
+    _commanderIdentityLock = null;
+    resetProducedMana();
+  }
+
+  void resetProducedMana() {
+    _producedMana
+      ..clear()
+      ..addAll(MTGColor.values);
+    notifyListeners();
+  }
 }

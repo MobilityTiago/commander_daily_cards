@@ -19,6 +19,7 @@ class CardService extends ChangeNotifier {
   MTGCard? _dailyGameChangerLand;
   List<MTGCard> _allCards = [];
   List<MTGCard> _dailySuggestionCards = [];
+  List<MTGCard> _selectedCommanders = [];
 
   String? _dailyAppBarCardId;
 
@@ -29,6 +30,19 @@ class CardService extends ChangeNotifier {
   MTGCard? get dailyGameChangerLand => _dailyGameChangerLand;
   List<MTGCard> get dailySuggestionCards => _dailySuggestionCards;
   List<MTGCard> get allCards => List.unmodifiable(_allCards);
+  List<MTGCard> get selectedCommanders => List.unmodifiable(_selectedCommanders);
+  MTGCard? get selectedCommander =>
+      _selectedCommanders.isEmpty ? null : _selectedCommanders.first;
+  MTGCard? get selectedCommanderPartner =>
+      _selectedCommanders.length > 1 ? _selectedCommanders[1] : null;
+  List<String> get selectedCommanderIdentity {
+    final colors = <String>{};
+    for (final card in _selectedCommanders) {
+      colors.addAll(card.colorIdentity ?? const <String>[]);
+    }
+    return colors.toList()..sort();
+  }
+  String get selectedCommanderNames => _selectedCommanders.map((c) => c.name).join(' + ');
 
   /// All cards in the local dataset that are marked as Game Changers.
   List<MTGCard> get allGameChangerCards =>
@@ -66,6 +80,7 @@ class CardService extends ChangeNotifier {
   static const String _regularLandKey = 'DailyRegularLand';
   static const String _gameChangerLandKey = 'DailyGameChangerLand';
   static const String _appBarCardKey = 'DailyAppBarCardId';
+  static const String _selectedCommanderKey = 'SelectedCommander';
 
   Future<void> loadInitialData(SpellFilterSettings nonLandFilters, LandFilterSettings landFilters) async {
 
@@ -76,6 +91,12 @@ class CardService extends ChangeNotifier {
       // Fast path: load already-saved daily cards first so home can render
       // immediately without waiting for full card dataset parsing.
       await _loadSavedDailyCards();
+
+      if (_selectedCommanders.isNotEmpty) {
+        final identity = selectedCommanderIdentity;
+        nonLandFilters.lockToCommanderIdentity(identity);
+        landFilters.lockToCommanderIdentity(identity);
+      }
 
       final shouldGenerateDaily = await _shouldGenerateNewDailyCards();
 
@@ -117,6 +138,50 @@ class CardService extends ChangeNotifier {
     _dailyAppBarCardId = card?.id;
     await _saveAppBarCardId();
     notifyListeners();
+  }
+
+  Future<void> setSelectedCommanders(List<MTGCard> cards) async {
+    _selectedCommanders = _sanitizeSelectedCommanders(cards);
+    await _saveSelectedCommanders();
+    notifyListeners();
+  }
+
+  Future<void> _saveSelectedCommanders() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (_selectedCommanders.isNotEmpty) {
+        await prefs.setString(
+          _selectedCommanderKey,
+          json.encode(_selectedCommanders.map((c) => c.toJson()).toList()),
+        );
+      } else {
+        await prefs.remove(_selectedCommanderKey);
+      }
+    } catch (e) {
+        debugPrint('Error saving selected commanders: $e');
+    }
+  }
+
+  /// Returns commander-legal cards whose name contains [query].
+  /// A card qualifies if its type line includes "Legendary Creature" or its
+  /// oracle text contains "can be your commander".
+  List<MTGCard> searchCommanders(String query) {
+    if (_allCards.isEmpty) return [];
+    final q = query.toLowerCase().trim();
+    if (q.isEmpty) return [];
+    return _allCards.where((card) {
+      if (!card.canBePrimaryCommander) return false;
+      return card.name.toLowerCase().contains(q);
+    }).toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+  }
+
+  List<MTGCard> _sanitizeSelectedCommanders(Iterable<MTGCard> cards) {
+    final selected = List<MTGCard>.from(cards.take(2));
+    if (selected.length == 1 && selected.first.isBackgroundCommanderCard) {
+      return [];
+    }
+    return selected;
   }
 
   Future<void> _saveAppBarCardId() async {
@@ -875,6 +940,22 @@ class CardService extends ChangeNotifier {
       final gameChangerLandJson = prefs.getString(_gameChangerLandKey);
       if (gameChangerLandJson != null) {
         _dailyGameChangerLand = MTGCard.fromJson(json.decode(gameChangerLandJson));
+      }
+
+      final selectedCommanderJson = prefs.getString(_selectedCommanderKey);
+      if (selectedCommanderJson != null) {
+        final decoded = json.decode(selectedCommanderJson);
+        if (decoded is List) {
+          _selectedCommanders = _sanitizeSelectedCommanders(
+            decoded
+                .whereType<Map<String, dynamic>>()
+                .map(MTGCard.fromJson),
+          );
+        } else if (decoded is Map<String, dynamic>) {
+          _selectedCommanders = _sanitizeSelectedCommanders([
+            MTGCard.fromJson(decoded),
+          ]);
+        }
       }
 
       _dailyAppBarCardId = prefs.getString(_appBarCardKey);

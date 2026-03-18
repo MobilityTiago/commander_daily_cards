@@ -159,6 +159,187 @@ class MTGCard {
     return legalities['commander'] == 'legal';
   }
 
+  String get combinedTypeLine {
+    final parts = <String>[];
+    if (typeLine != null && typeLine!.isNotEmpty) {
+      parts.add(typeLine!);
+    }
+    if (cardFaces != null) {
+      for (final face in cardFaces!) {
+        final faceType = face.typeLine;
+        if (faceType != null && faceType.isNotEmpty) {
+          parts.add(faceType);
+        }
+      }
+    }
+    return parts.join(' // ');
+  }
+
+  String get combinedOracleText {
+    final parts = <String>[];
+    if (oracleText != null && oracleText!.isNotEmpty) {
+      parts.add(oracleText!);
+    }
+    if (cardFaces != null) {
+      for (final face in cardFaces!) {
+        final faceOracle = face.oracleText;
+        if (faceOracle != null && faceOracle.isNotEmpty) {
+          parts.add(faceOracle);
+        }
+      }
+    }
+    return parts.join('\n');
+  }
+
+  String get normalizedCombinedTypeLine => combinedTypeLine.toLowerCase();
+
+  String get normalizedCombinedOracleText => combinedOracleText.toLowerCase();
+
+  bool get _hasAnyPowerToughness {
+    if ((power != null && power!.isNotEmpty) ||
+        (toughness != null && toughness!.isNotEmpty)) {
+      return true;
+    }
+
+    if (cardFaces != null) {
+      for (final face in cardFaces!) {
+        if ((face.power != null && face.power!.isNotEmpty) ||
+            (face.toughness != null && face.toughness!.isNotEmpty)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  bool get canBeCommander {
+    if (!isCommanderLegal) return false;
+
+    final type = normalizedCombinedTypeLine;
+    final oracle = normalizedCombinedOracleText;
+
+    final isLegendaryCreature =
+        type.contains('legendary') && type.contains('creature');
+    final isLegendaryPlaneswalker =
+        type.contains('legendary') && type.contains('planeswalker');
+    final isLegendaryBackground =
+        type.contains('legendary enchantment') && type.contains('background');
+    final isLegendaryVehicleOrSpacecraft =
+        type.contains('legendary') &&
+        (type.contains('vehicle') || type.contains('spacecraft'));
+    final isPermanent = type.contains('artifact') ||
+        type.contains('battle') ||
+        type.contains('creature') ||
+        type.contains('enchantment') ||
+        type.contains('land') ||
+        type.contains('planeswalker');
+
+    final hasExplicitCommanderText = oracle.contains('can be your commander');
+    final hasPartnerLikeText = oracle.contains('partner') ||
+        oracle.contains('friends forever') ||
+        oracle.contains("doctor's companion") ||
+        oracle.contains('choose a background');
+
+    return isLegendaryCreature ||
+        (isPermanent && hasExplicitCommanderText) ||
+        ((isLegendaryCreature || isLegendaryPlaneswalker) && hasPartnerLikeText) ||
+        isLegendaryBackground ||
+        (isLegendaryVehicleOrSpacecraft && _hasAnyPowerToughness);
+  }
+
+        bool get canBePrimaryCommander => canBeCommander && !isBackgroundCommanderCard;
+
+  bool get isBackgroundCommanderCard =>
+      normalizedCombinedTypeLine.contains('legendary enchantment') &&
+      normalizedCombinedTypeLine.contains('background');
+
+  bool get hasChooseABackground =>
+      normalizedCombinedOracleText.contains('choose a background');
+
+  bool get hasFriendsForever =>
+      normalizedCombinedOracleText.contains('friends forever');
+
+  bool get hasDoctorsCompanion =>
+      normalizedCombinedOracleText.contains("doctor's companion");
+
+  bool get hasPartnerWith =>
+      normalizedCombinedOracleText.contains('partner with ');
+
+  bool get hasGenericPartner =>
+      normalizedCombinedOracleText.contains('partner') && !hasPartnerWith;
+
+    bool get isDoctor => normalizedCombinedTypeLine.contains('doctor');
+
+  bool get supportsAdditionalCommanderChoice =>
+      hasChooseABackground ||
+      isBackgroundCommanderCard ||
+      hasGenericPartner ||
+      hasPartnerWith ||
+      hasFriendsForever ||
+      hasDoctorsCompanion;
+
+  String? get partnerWithName {
+    for (final line in combinedOracleText.split('\n')) {
+      final lower = line.toLowerCase();
+      const marker = 'partner with ';
+      final index = lower.indexOf(marker);
+      if (index == -1) continue;
+      return line.substring(index + marker.length).trim();
+    }
+    return null;
+  }
+
+  bool canPairWithAsCommander(MTGCard other) {
+    if (id == other.id) return false;
+    if (!canBeCommander || !other.canBeCommander) return false;
+
+    if (hasChooseABackground && other.isBackgroundCommanderCard) return true;
+    if (isBackgroundCommanderCard && other.hasChooseABackground) return true;
+
+    final partnerName = partnerWithName;
+    if (partnerName != null && other.name.toLowerCase() == partnerName.toLowerCase()) {
+      return true;
+    }
+
+    final otherPartnerName = other.partnerWithName;
+    if (otherPartnerName != null && name.toLowerCase() == otherPartnerName.toLowerCase()) {
+      return true;
+    }
+
+    if (hasFriendsForever && other.hasFriendsForever) return true;
+    if (hasGenericPartner && other.hasGenericPartner) return true;
+
+    final isDoctor = normalizedCombinedTypeLine.contains('doctor');
+    final otherIsDoctor = other.normalizedCombinedTypeLine.contains('doctor');
+    if (hasDoctorsCompanion && otherIsDoctor) return true;
+    if (other.hasDoctorsCompanion && isDoctor) return true;
+
+    return false;
+  }
+
+  bool isValidAdditionalCommanderCandidate(MTGCard other) {
+    if (id == other.id) return false;
+    if (!canBeCommander || !other.canBeCommander) return false;
+
+    if (hasChooseABackground) return other.isBackgroundCommanderCard;
+    if (isBackgroundCommanderCard) return other.hasChooseABackground;
+
+    final partnerName = partnerWithName;
+    if (partnerName != null) {
+      final target = partnerName.toLowerCase();
+      return other.name.toLowerCase() == target ||
+          (other.partnerWithName?.toLowerCase() == name.toLowerCase()) ||
+          (other.partnerWithName?.toLowerCase() == target);
+    }
+
+    if (hasFriendsForever) return other.hasFriendsForever;
+    if (hasDoctorsCompanion) return other.isDoctor;
+    if (hasGenericPartner) return other.hasGenericPartner;
+
+    return false;
+  }
+
   // Add helper method to check if card is a creature
   bool get isCreature {
     return typeLine?.toLowerCase().contains('creature') ?? false;
@@ -195,6 +376,8 @@ class CardFace {
   final String? manaCost;
   final String? typeLine;
   final String? oracleText;
+  final String? power;
+  final String? toughness;
   final ImageUris? imageUris;
 
   CardFace({
@@ -202,6 +385,8 @@ class CardFace {
     this.manaCost,
     this.typeLine,
     this.oracleText,
+    this.power,
+    this.toughness,
     this.imageUris,
   });
 
@@ -211,6 +396,8 @@ class CardFace {
       manaCost: json['mana_cost'],
       typeLine: json['type_line'],
       oracleText: json['oracle_text'],
+      power: MTGCard._parseString(json['power']),
+      toughness: MTGCard._parseString(json['toughness']),
       imageUris: json['image_uris'] != null
           ? ImageUris.fromJson(json['image_uris'])
           : null,
@@ -223,6 +410,8 @@ class CardFace {
       'mana_cost': manaCost,
       'type_line': typeLine,
       'oracle_text': oracleText,
+      'power': power,
+      'toughness': toughness,
       'image_uris': imageUris?.toJson(),
     };
   }

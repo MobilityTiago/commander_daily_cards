@@ -63,6 +63,7 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
 
   final Set<MTGColor> _selectedColors = {};
   final Set<MTGColor> _selectedCommanderColors = {};
+  bool _lockCommanderColorToSelectedCommander = false;
   ColorMode _colorMode = ColorMode.includes;
   bool _exactManaCost = false;
   bool _showHybridMana = false;
@@ -98,6 +99,8 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
   bool _isLoading = false;
   bool _showArtCropOnly = false;
   List<MTGCard> _searchResults = [];
+  CardService? _cardService;
+  List<String> _lastCommanderIds = const [];
 
   @override
   void initState() {
@@ -132,7 +135,20 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final nextCardService = context.read<CardService>();
+    if (!identical(_cardService, nextCardService)) {
+      _cardService?.removeListener(_handleCommanderSelectionChanged);
+      _cardService = nextCardService;
+      _cardService?.addListener(_handleCommanderSelectionChanged);
+      _syncCommanderLockFromSelection();
+    }
+  }
+
+  @override
   void dispose() {
+    _cardService?.removeListener(_handleCommanderSelectionChanged);
     _nameController.dispose();
     _oracleController.dispose();
     _typeController.dispose();
@@ -146,6 +162,48 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
     _priceMaxController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _handleCommanderSelectionChanged() {
+    if (!mounted) return;
+    _syncCommanderLockFromSelection(notify: true);
+  }
+
+  void _syncCommanderLockFromSelection({bool notify = false}) {
+    final cardService = _cardService;
+    if (cardService == null) return;
+
+    final commanderIds = cardService.selectedCommanders
+        .map((card) => card.id)
+        .toList(growable: false);
+    if (_sameStringLists(_lastCommanderIds, commanderIds)) {
+      return;
+    }
+
+    _lastCommanderIds = commanderIds;
+    final lockedCommanderColors =
+        _colorsFromIdentity(cardService.selectedCommanderIdentity);
+
+    void apply() {
+      _lockCommanderColorToSelectedCommander = commanderIds.isNotEmpty;
+      _selectedCommanderColors
+        ..clear()
+        ..addAll(lockedCommanderColors);
+    }
+
+    if (notify) {
+      setState(apply);
+    } else {
+      apply();
+    }
+  }
+
+  bool _sameStringLists(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   void _appendManaSymbol(String token) {
@@ -219,6 +277,10 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
 
   String _buildAdvancedQuery() {
     final parts = <String>[];
+    final cardService = context.read<CardService>();
+    final effectiveCommanderColors = _lockCommanderColorToSelectedCommander
+      ? _colorsFromIdentity(cardService.selectedCommanderIdentity)
+        : _selectedCommanderColors;
 
     final name = _nameController.text.trim();
     final oracle = _oracleController.text.trim();
@@ -271,8 +333,8 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
       }
     }
 
-    if (_selectedCommanderColors.isNotEmpty) {
-      final colors = _selectedCommanderColors.map((c) => c.symbol).join();
+    if (effectiveCommanderColors.isNotEmpty) {
+      final colors = effectiveCommanderColors.map((c) => c.symbol).join();
       parts.add('ci<=$colors');
     }
 
@@ -355,6 +417,13 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
     }
 
     return parts.join(' ');
+  }
+
+  Set<MTGColor> _colorsFromIdentity(List<String> identity) {
+    return identity
+        .map((symbol) => MTGColor.values.where((c) => c.symbol == symbol).firstOrNull)
+        .whereType<MTGColor>()
+        .toSet();
   }
 
   @override
@@ -576,28 +645,74 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
             ],
           ),
           const SizedBox(height: 16),
-          Text(
-            'Commander Color',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            children: MTGColor.values.map((color) {
-              return FilterChip(
-                label: ManaSymbolLabel(color: color),
-                selected: _selectedCommanderColors.contains(color),
-                onSelected: (selected) {
-                  setState(() {
-                    if (selected) {
-                      _selectedCommanderColors.add(color);
-                    } else {
-                      _selectedCommanderColors.remove(color);
-                    }
-                  });
-                },
+          Consumer<CardService>(
+            builder: (context, cardService, _) {
+              final selectedCommanders = cardService.selectedCommanders;
+              final lockedCommanderColors = _colorsFromIdentity(
+                cardService.selectedCommanderIdentity,
               );
-            }).toList(),
+              final displayedCommanderColors = _lockCommanderColorToSelectedCommander
+                  ? lockedCommanderColors
+                  : _selectedCommanderColors;
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Commander Color',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Lock to currently selected commander'),
+                    subtitle: Text(
+                      selectedCommanders.isNotEmpty
+                        ? cardService.selectedCommanderNames
+                        : 'No commander selected on the Daily page',
+                    ),
+                    value: _lockCommanderColorToSelectedCommander &&
+                      selectedCommanders.isNotEmpty,
+                    onChanged: selectedCommanders.isEmpty
+                        ? null
+                        : (selected) {
+                            setState(() {
+                              _lockCommanderColorToSelectedCommander = selected;
+                              if (selected) {
+                                _selectedCommanderColors
+                                  ..clear()
+                                  ..addAll(lockedCommanderColors);
+                              }
+                            });
+                          },
+                  ),
+                  if (selectedCommanders.isNotEmpty) ...[
+                    _SelectedCommanderPreview(cards: selectedCommanders),
+                    const SizedBox(height: 12),
+                  ],
+                  Wrap(
+                    spacing: 8,
+                    children: MTGColor.values.map((color) {
+                      return FilterChip(
+                        label: ManaSymbolLabel(color: color),
+                        selected: displayedCommanderColors.contains(color),
+                        onSelected: _lockCommanderColorToSelectedCommander
+                            ? null
+                            : (selected) {
+                                setState(() {
+                                  if (selected) {
+                                    _selectedCommanderColors.add(color);
+                                  } else {
+                                    _selectedCommanderColors.remove(color);
+                                  }
+                                });
+                              },
+                      );
+                    }).toList(),
+                  ),
+                ],
+              );
+            },
           ),
           const SizedBox(height: 16),
           Text(
@@ -1267,6 +1382,215 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
       ],
     );
   }
+}
+
+class _SelectedCommanderPreview extends StatelessWidget {
+  final List<MTGCard> cards;
+
+  const _SelectedCommanderPreview({required this.cards});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white.withAlpha((0.06 * 255).round()),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        children: [
+          for (var i = 0; i < cards.length; i++) ...[
+            _SelectedCommanderPreviewTile(
+              card: cards[i],
+              label: i == 0
+                  ? 'Commander'
+                  : (cards[i].isBackgroundCommanderCard ? 'Background' : 'Partner'),
+            ),
+            if (i < cards.length - 1) const SizedBox(height: 10),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SelectedCommanderPreviewTile extends StatelessWidget {
+  final MTGCard card;
+  final String label;
+
+  const _SelectedCommanderPreviewTile({
+    required this.card,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final manaCost = card.manaCost ??
+        ((card.cardFaces != null && card.cardFaces!.isNotEmpty)
+            ? card.cardFaces!.first.manaCost
+            : null);
+    final identityTokens =
+        (card.colorIdentity == null || card.colorIdentity!.isEmpty)
+            ? const ['{C}']
+            : card.colorIdentity!.map((symbol) => '{$symbol}').toList();
+
+    return Row(
+      children: [
+        if (card.imageUris?.artCrop != null)
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: Image.network(
+              card.imageUris!.artCrop!,
+              width: 68,
+              height: 48,
+              fit: BoxFit.cover,
+            ),
+          )
+        else
+          Container(
+            width: 68,
+            height: 48,
+            decoration: BoxDecoration(
+              color: Colors.white10,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: const Icon(Icons.image_not_supported, color: Colors.white54),
+          ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                card.name,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+              if (manaCost != null && manaCost.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                _InlineManaTokenWrap(
+                  tokens: _parseManaTokens(manaCost),
+                  iconSize: 16,
+                ),
+              ],
+              const SizedBox(height: 4),
+              _InlineManaTokenWrap(
+                tokens: identityTokens,
+                iconSize: 12,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _InlineManaTokenWrap extends StatelessWidget {
+  final List<String> tokens;
+  final double iconSize;
+
+  const _InlineManaTokenWrap({
+    required this.tokens,
+    required this.iconSize,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 2,
+      runSpacing: 2,
+      children: [
+        for (final token in tokens)
+          _StaticManaSymbol(
+            token: token,
+            size: iconSize,
+          ),
+      ],
+    );
+  }
+}
+
+class _StaticManaSymbol extends StatelessWidget {
+  final String token;
+  final double size;
+
+  const _StaticManaSymbol({required this.token, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    final symbolService = context.watch<SymbolService>();
+    final svgData = symbolService.svgDataByToken(token);
+
+    if (svgData == null || svgData.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        symbolService.requestRefreshOnMiss(token);
+      });
+    }
+
+    if (svgData != null && svgData.isNotEmpty) {
+      return SvgPicture.string(
+        svgData,
+        width: size,
+        height: size,
+      );
+    }
+
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: Colors.white10,
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Text(
+        token.replaceAll('{', '').replaceAll('}', ''),
+        style: TextStyle(
+          fontSize: size * 0.45,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+}
+
+List<String> _parseManaTokens(String value) {
+  final tokens = <String>[];
+  var current = StringBuffer();
+  var inside = false;
+
+  for (final rune in value.runes) {
+    final char = String.fromCharCode(rune);
+    if (char == '{') {
+      inside = true;
+      current = StringBuffer()..write(char);
+      continue;
+    }
+    if (inside) {
+      current.write(char);
+      if (char == '}') {
+        tokens.add(current.toString());
+        inside = false;
+        current = StringBuffer();
+      }
+    }
+  }
+
+  return tokens;
 }
 
 class _ManaSymbolInputButton extends StatelessWidget {

@@ -456,12 +456,12 @@ class _CardGridTab extends StatelessWidget {
                                 Align(
                                   alignment: Alignment.center,
                                   child: Container(
-                                    width: 28,
-                                    height: 20,
+                                    width: 56,
+                                    height: 56,
                                     decoration: BoxDecoration(
                                       color: Colors.purple
                                           .withAlpha((0.85 * 255).round()),
-                                      borderRadius: BorderRadius.circular(10),
+                                      shape: BoxShape.circle,
                                     ),
                                     child: const Center(
                                       child: Text(
@@ -469,7 +469,7 @@ class _CardGridTab extends StatelessWidget {
                                         style: TextStyle(
                                           color: Colors.white,
                                           fontWeight: FontWeight.bold,
-                                          fontSize: 9,
+                                          fontSize: 18,
                                         ),
                                       ),
                                     ),

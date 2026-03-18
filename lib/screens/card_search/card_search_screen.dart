@@ -17,17 +17,99 @@ class CardSearchScreen extends StatefulWidget {
 class _CardSearchScreenState extends State<CardSearchScreen> {
   List<MTGCard> _searchResults = [];
   final TextEditingController _searchController = TextEditingController();
+  bool _lockToSelectedCommander = false;
+  CardService? _cardService;
+  List<String> _lastCommanderIds = const [];
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final nextCardService = context.read<CardService>();
+    if (!identical(_cardService, nextCardService)) {
+      _cardService?.removeListener(_handleCommanderSelectionChanged);
+      _cardService = nextCardService;
+      _cardService?.addListener(_handleCommanderSelectionChanged);
+      _syncCommanderLockFromSelection();
+    }
+  }
 
   @override
   void dispose() {
+    _cardService?.removeListener(_handleCommanderSelectionChanged);
     _searchController.dispose();
     super.dispose();
   }
 
+  void _handleCommanderSelectionChanged() {
+    if (!mounted) return;
+    _syncCommanderLockFromSelection(notify: true);
+  }
+
+  void _syncCommanderLockFromSelection({bool notify = false}) {
+    final cardService = _cardService;
+    if (cardService == null) return;
+
+    final commanderIds = cardService.selectedCommanders
+        .map((card) => card.id)
+        .toList(growable: false);
+    if (_sameStringLists(_lastCommanderIds, commanderIds)) {
+      return;
+    }
+
+    _lastCommanderIds = commanderIds;
+    final shouldRefresh =
+        _searchController.text.trim().isNotEmpty || _searchResults.isNotEmpty;
+
+    void apply() {
+      _lockToSelectedCommander = commanderIds.isNotEmpty;
+    }
+
+    if (notify) {
+      setState(apply);
+    } else {
+      apply();
+    }
+
+    if (shouldRefresh) {
+      _performSearch(_searchController.text);
+    }
+  }
+
+  bool _sameStringLists(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  bool _matchesSelectedCommanderIdentity(
+    MTGCard card,
+    List<String> commanderIdentity,
+  ) {
+    if (commanderIdentity.isEmpty) return true;
+    final allowedColors = commanderIdentity.toSet();
+    final cardIdentity = card.colorIdentity ?? const <String>[];
+    return cardIdentity.every(allowedColors.contains);
+  }
+
   void _performSearch(String query) {
     final cardService = context.read<CardService>();
+    final results = cardService.searchCards(query);
+    final filteredResults = _lockToSelectedCommander &&
+            cardService.selectedCommanders.isNotEmpty
+        ? results
+            .where(
+              (card) => _matchesSelectedCommanderIdentity(
+                card,
+                cardService.selectedCommanderIdentity,
+              ),
+            )
+            .toList()
+        : results;
+
     setState(() {
-      _searchResults = cardService.searchCards(query);
+      _searchResults = filteredResults;
     });
   }
 
@@ -88,6 +170,30 @@ class _CardSearchScreenState extends State<CardSearchScreen> {
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 12),
+                Consumer<CardService>(
+                  builder: (context, cardService, _) {
+                    final hasCommander = cardService.selectedCommanders.isNotEmpty;
+                    return SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Lock to selected commander'),
+                      subtitle: Text(
+                        hasCommander
+                            ? cardService.selectedCommanderNames
+                            : 'No commander selected on the Daily page',
+                      ),
+                      value: _lockToSelectedCommander && hasCommander,
+                      onChanged: hasCommander
+                          ? (selected) {
+                              setState(() {
+                                _lockToSelectedCommander = selected;
+                              });
+                              _performSearch(_searchController.text);
+                            }
+                          : null,
+                    );
+                  },
                 ),
                 const SizedBox(height: 16),
                 OutlinedButton.icon(

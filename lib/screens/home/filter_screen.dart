@@ -70,8 +70,9 @@ class SpellFilterTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<SpellFilterSettings>(
-      builder: (context, filterSettings, child) {
+    return Consumer2<CardService, SpellFilterSettings>(
+      builder: (context, cardService, filterSettings, child) {
+        final isCommanderLocked = cardService.selectedCommanders.isNotEmpty;
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
@@ -120,9 +121,18 @@ class SpellFilterTab extends StatelessWidget {
                       'Cards that could be played in a deck with these colors',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
+                    if (isCommanderLocked) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Locked to ${cardService.selectedCommanderNames} while a commander is selected.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
                     Switch(
                       value: filterSettings.exclusiveColorMatch,
-                      onChanged: (_) => filterSettings.toggleColorMatchMode(),
+                      onChanged: isCommanderLocked
+                          ? null
+                          : (_) => filterSettings.toggleColorMatchMode(),
                     ),
                     Text(filterSettings.exclusiveColorMatch 
                         ? 'Must match colors exactly' 
@@ -132,9 +142,11 @@ class SpellFilterTab extends StatelessWidget {
                       return CheckboxListTile(
                         title: ManaSymbolLabel(color: color),
                         value: filterSettings.selectedColors.contains(color),
-                        onChanged: (value) {
-                          filterSettings.toggleColor(color);
-                        },
+                        onChanged: isCommanderLocked
+                            ? null
+                            : (value) {
+                                filterSettings.toggleColor(color);
+                              },
                         dense: true,
                         contentPadding: EdgeInsets.zero,
                       );
@@ -269,8 +281,9 @@ class LandFilterTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<LandFilterSettings>(
-      builder: (context, filterSettings, child) {
+    return Consumer2<CardService, LandFilterSettings>(
+      builder: (context, cardService, filterSettings, child) {
+        final isCommanderLocked = cardService.selectedCommanders.isNotEmpty;
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
@@ -285,14 +298,23 @@ class LandFilterTab extends StatelessWidget {
                       'Produced Mana',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
+                    if (isCommanderLocked) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Locked to ${cardService.selectedCommanderNames} while a commander is selected.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     ...MTGColor.values.map((color) {
                       return CheckboxListTile(
                         title: ManaSymbolLabel(color: color),
                         value: filterSettings.producedMana.contains(color),
-                        onChanged: (value) {
-                          filterSettings.toggleProducedMana(color);
-                        },
+                        onChanged: isCommanderLocked
+                            ? null
+                            : (value) {
+                                filterSettings.toggleProducedMana(color);
+                              },
                         dense: true,
                         contentPadding: EdgeInsets.zero,
                       );

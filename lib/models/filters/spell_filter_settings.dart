@@ -5,6 +5,7 @@ import '../cards/mtg_card.dart';
 class SpellFilterSettings extends BaseFilterSettings {
   final Set<CardType> _selectedCardTypes = Set.from(CardType.values.where((type) => type.displayName != 'Land'));
   final Set<MTGColor> _selectedColors = Set.from(MTGColor.values);
+  List<String>? _commanderIdentityLock;
   double _minCMC = 0.0;
   double _maxCMC = 15.0;
   bool _exclusiveColorMatch = false;
@@ -16,6 +17,9 @@ class SpellFilterSettings extends BaseFilterSettings {
   double get maxCMC => _maxCMC;
   bool get exclusiveColorMatch => _exclusiveColorMatch;
   Set<String> get selectedRarities => _selectedRarities;
+  bool get isCommanderLocked => _commanderIdentityLock != null;
+  List<String> get commanderIdentityLock =>
+      List.unmodifiable(_commanderIdentityLock ?? const <String>[]);
 
   void toggleCardType(CardType cardType) {
     if (_selectedCardTypes.contains(cardType)) {
@@ -73,17 +77,21 @@ class SpellFilterSettings extends BaseFilterSettings {
         _selectedCardTypes.any((cardType) =>
             card.typeLine?.contains(cardType.displayName) == true);
 
-    final colorMatches = _selectedColors.isEmpty ||
-        (card.colors?.isEmpty == true && _selectedColors.contains(MTGColor.colorless)) ||
+    final colorMatches = isCommanderLocked
+      ? _isIdentitySubsetOfCommander(card.colorIdentity ?? [])
+      : _selectedColors.isEmpty ||
+        (card.colors?.isEmpty == true &&
+          _selectedColors.contains(MTGColor.colorless)) ||
         (_exclusiveColorMatch
-            ? _areColorListsEqual(
-                card.colorIdentity ?? [], 
-                _selectedColors.where((c) => c != MTGColor.colorless)
-                    .map((c) => c.symbol)
-                    .toList())
-            : card.colorIdentity?.any((color) =>
-                _selectedColors.any((selectedColor) => 
-                    selectedColor.symbol == color)) == true);
+          ? _areColorListsEqual(
+            card.colorIdentity ?? [],
+            _selectedColors.where((c) => c != MTGColor.colorless)
+              .map((c) => c.symbol)
+              .toList())
+          : card.colorIdentity?.any((color) =>
+              _selectedColors.any(
+                (selectedColor) => selectedColor.symbol == color)) ==
+            true);
 
     final cmcMatches = card.cmc >= _minCMC && card.cmc <= _maxCMC;
 
@@ -112,6 +120,54 @@ class SpellFilterSettings extends BaseFilterSettings {
       if (sortedColors1[i] != sortedColors2[i]) return false;
     }
     return true;
+  }
+
+  bool _isIdentitySubsetOfCommander(List<String> cardIdentity) {
+    final allowed = _commanderIdentityLock;
+    if (allowed == null) return true;
+    return cardIdentity.every(allowed.contains);
+  }
+
+  void setColorsFromIdentity(List<String> colorIdentity) {
+    _selectedColors.clear();
+    if (colorIdentity.isEmpty) {
+      _selectedColors.add(MTGColor.colorless);
+    } else {
+      for (final symbol in colorIdentity) {
+        final match =
+            MTGColor.values.where((c) => c.symbol == symbol).firstOrNull;
+        if (match != null) _selectedColors.add(match);
+      }
+    }
+    notifyListeners();
+  }
+
+  void lockToCommanderIdentity(List<String> colorIdentity) {
+    _commanderIdentityLock = List<String>.from(colorIdentity);
+    _exclusiveColorMatch = false;
+    _selectedColors.clear();
+    if (colorIdentity.isEmpty) {
+      _selectedColors.add(MTGColor.colorless);
+    } else {
+      for (final symbol in colorIdentity) {
+        final match =
+            MTGColor.values.where((c) => c.symbol == symbol).firstOrNull;
+        if (match != null) _selectedColors.add(match);
+      }
+    }
+    notifyListeners();
+  }
+
+  void unlockCommanderIdentity() {
+    _commanderIdentityLock = null;
+    resetColors();
+  }
+
+  void resetColors() {
+    _selectedColors
+      ..clear()
+      ..addAll(MTGColor.values);
+    notifyListeners();
   }
 }
 
