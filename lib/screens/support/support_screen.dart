@@ -102,12 +102,12 @@ class SupportScreen extends StatelessWidget {
                   const SizedBox(height: 16),
                   const Text(
                     'Follow me on Instagram for MTG content, board game photos '
-                    'and behind the scenes development updates.',
+                    'and behind the scenes development updates: @top10boardgames.',
                   ),
                   const SizedBox(height: 16),
                   ElevatedButton.icon(
                     onPressed: () async {
-                      final url = Uri.parse('https://www.instagram.com/jogamostodos/');
+                      final url = Uri.parse('https://www.instagram.com/top10boardgames/');
                       if (await canLaunchUrl(url)) {
                         await launchUrl(url, mode: LaunchMode.externalApplication);
                       }
@@ -116,7 +116,7 @@ class SupportScreen extends StatelessWidget {
                       backgroundColor: AppColors.instagramPink,
                     ),
                     icon: const Icon(Icons.camera_alt, color: Colors.white),
-                    label: const Text('Follow on Instagram', 
+                    label: const Text('Follow @top10boardgames', 
                       style: TextStyle(color: Colors.white)),
                   ),
                 ],

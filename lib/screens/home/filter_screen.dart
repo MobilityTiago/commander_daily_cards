@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../models/filters/filter_settings.dart';
 import '../../models/cards/card_enums.dart';
 import '../../services/card_service.dart';
+import '../../widgets/mana_symbol_label.dart';
 
 class FilterScreen extends StatefulWidget {
   const FilterScreen({super.key});
@@ -129,7 +130,7 @@ class SpellFilterTab extends StatelessWidget {
                     const SizedBox(height: 12),
                     ...MTGColor.values.map((color) {
                       return CheckboxListTile(
-                        title: Text(color.displayName),
+                        title: ManaSymbolLabel(color: color),
                         value: filterSettings.selectedColors.contains(color),
                         onChanged: (value) {
                           filterSettings.toggleColor(color);
@@ -287,7 +288,7 @@ class LandFilterTab extends StatelessWidget {
                     const SizedBox(height: 12),
                     ...MTGColor.values.map((color) {
                       return CheckboxListTile(
-                        title: Text(color.displayName),
+                        title: ManaSymbolLabel(color: color),
                         value: filterSettings.producedMana.contains(color),
                         onChanged: (value) {
                           filterSettings.toggleProducedMana(color);

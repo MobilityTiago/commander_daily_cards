@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
@@ -27,6 +28,14 @@ class CardService extends ChangeNotifier {
   MTGCard? get dailyRegularLand => _dailyRegularLand;
   MTGCard? get dailyGameChangerLand => _dailyGameChangerLand;
   List<MTGCard> get dailySuggestionCards => _dailySuggestionCards;
+
+  /// All cards in the local dataset that are marked as Game Changers.
+  List<MTGCard> get allGameChangerCards =>
+      _allCards.where((c) => c.gameChanger).toList();
+
+  /// All cards in the local dataset that are banned in Commander.
+  List<MTGCard> get allBannedCards =>
+      _allCards.where((c) => c.legalities['commander'] == 'banned').toList();
 
   /// The card currently used as the app bar background across all screens.
   ///
@@ -63,24 +72,35 @@ class CardService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final shouldUpdateCards = await _shouldUpdateCardData();
+      // Fast path: load already-saved daily cards first so home can render
+      // immediately without waiting for full card dataset parsing.
+      await _loadSavedDailyCards();
 
-      if (shouldUpdateCards || _allCards.isEmpty) {
-        await _downloadCardData();
-      } else {
-        await _loadLocalCardData();
-      }
+      final shouldGenerateDaily = await _shouldGenerateNewDailyCards();
 
-      if (await _shouldGenerateNewDailyCards()) {
+      if (shouldGenerateDaily) {
+        await _ensureCardDataLoadedForStartup();
         await generateDailyCards(nonLandFilters, landFilters);
       } else {
-        await _loadSavedDailyCards();
+        // We already loaded saved daily cards above. Keep startup snappy and
+        // warm/update card data in background for search screens.
+        unawaited(_ensureCardDataLoadedForStartup());
       }
     } catch (e) {
       debugPrint('Error loading initial data: $e');
     } finally {
       _isLoading = false;
       notifyListeners();
+    }
+  }
+
+  Future<void> _ensureCardDataLoadedForStartup() async {
+    final shouldUpdateCards = await _shouldUpdateCardData();
+
+    if (shouldUpdateCards || _allCards.isEmpty) {
+      await _downloadCardData();
+    } else {
+      await _loadLocalCardData();
     }
   }
 
@@ -151,6 +171,7 @@ class CardService extends ChangeNotifier {
 
     try {
       final parsed = _parseScryfallQuery(query);
+      // Advanced search intentionally includes banned cards (they get a BAN badge in the UI).
       return _filterCardsByParsedQuery(parsed);
     } catch (e) {
       debugPrint('Failed to parse advanced query: $e');
@@ -187,6 +208,11 @@ class CardService extends ChangeNotifier {
       }
       if (content.startsWith('mana:')) {
         parsed.manaCost = _unquote(content.substring(5));
+        parsed.manaNegated = isNegation;
+        continue;
+      }
+      if (content.startsWith('mana=')) {
+        parsed.manaCostExact = _unquote(content.substring(5));
         parsed.manaNegated = isNegation;
         continue;
       }
@@ -272,6 +298,9 @@ class CardService extends ChangeNotifier {
             ? _unquote(content.split(':')[1])
             : null;
         parsed.rarity = value;
+        if (value != null && value.isNotEmpty) {
+          parsed.rarities.add(value.toLowerCase());
+        }
         parsed.rarityNegated = isNegation;
         continue;
       }
@@ -387,9 +416,64 @@ class CardService extends ChangeNotifier {
       }
 
       if (query.manaCost != null) {
-        final mana = normalized(card.manaCost);
-        final contains = mana.contains(query.manaCost!.toLowerCase());
+        bool manaContainsOrderInsensitive(String? cardMana, String queryMana) {
+          final cardRaw = normalized(cardMana).trim();
+          final queryRaw = queryMana.toLowerCase().trim();
+
+          final tokenRegex = RegExp(r'\{[^}]+\}');
+          final cardTokens = tokenRegex
+              .allMatches(cardRaw)
+              .map((m) => m.group(0)!)
+              .toList();
+          final queryTokens = tokenRegex
+              .allMatches(queryRaw)
+              .map((m) => m.group(0)!)
+              .toList();
+
+          // If either side has no mana tokens, fall back to plain contains.
+          if (cardTokens.isEmpty || queryTokens.isEmpty) {
+            return cardRaw.contains(queryRaw);
+          }
+
+          // Multiset subset check: every query token must exist in card tokens
+          // with at least the same frequency, regardless of order.
+          final cardCount = <String, int>{};
+          for (final token in cardTokens) {
+            cardCount[token] = (cardCount[token] ?? 0) + 1;
+          }
+
+          for (final token in queryTokens) {
+            final current = cardCount[token] ?? 0;
+            if (current <= 0) return false;
+            cardCount[token] = current - 1;
+          }
+
+          return true;
+        }
+
+        final contains = manaContainsOrderInsensitive(card.manaCost, query.manaCost!);
         matches = matches && (query.manaNegated ? !contains : contains);
+      }
+      if (query.manaCostExact != null) {
+        String normalizeManaCostOrder(String? manaCost) {
+          final raw = normalized(manaCost).trim();
+          final tokenMatches = RegExp(r'\{[^}]+\}')
+              .allMatches(raw)
+              .map((m) => m.group(0)!)
+              .toList();
+
+          if (tokenMatches.isEmpty) {
+            return raw.replaceAll(' ', '');
+          }
+
+          tokenMatches.sort();
+          return tokenMatches.join();
+        }
+
+        final mana = normalizeManaCostOrder(card.manaCost);
+        final target = normalizeManaCostOrder(query.manaCostExact);
+        final exact = mana == target;
+        matches = matches && (query.manaNegated ? !exact : exact);
       }
 
       final cardIdentity = (card.colorIdentity ?? []).join().toUpperCase();
@@ -466,7 +550,11 @@ class CardService extends ChangeNotifier {
         matches = matches && (query.setNegated ? !contains : contains);
       }
 
-      if (query.rarity != null) {
+      if (query.rarities.isNotEmpty) {
+        final cardRarity = (card.rarity ?? '').toLowerCase();
+        final containsAny = query.rarities.contains(cardRarity);
+        matches = matches && (query.rarityNegated ? !containsAny : containsAny);
+      } else if (query.rarity != null) {
         final cardRarity = (card.rarity ?? '').toLowerCase();
         final contains = cardRarity == query.rarity!.toLowerCase();
         matches = matches && (query.rarityNegated ? !contains : contains);
@@ -577,7 +665,7 @@ class CardService extends ChangeNotifier {
     try {
       // Get bulk data info
       const headers = {
-        'User-Agent': 'CommandersDeck/1.0 (https://github.com/yourname/commander_daily_cards)',
+        'User-Agent': 'Command/1.0 (https://github.com/yourname/commander_daily_cards)',
         'Accept': 'application/json',
       };
 
@@ -624,7 +712,9 @@ class CardService extends ChangeNotifier {
       final List<dynamic> cardJsonList = json.decode(cardDataResponse.body);
       final cards = cardJsonList
           .map((cardJson) => MTGCard.fromJson(cardJson))
-          .where((card) => card.isCommanderLegal)
+          .where((card) =>
+              card.isCommanderLegal ||
+              card.legalities['commander'] == 'banned')
           .toList();
 
       _allCards = cards;
@@ -926,6 +1016,7 @@ class _AdvancedQuery {
   bool typeNegated = false;
 
   String? manaCost;
+  String? manaCostExact;
   bool manaNegated = false;
 
   String? colorIdentity;
@@ -952,6 +1043,7 @@ class _AdvancedQuery {
   bool setNegated = false;
 
   String? rarity;
+  final Set<String> rarities = {};
   bool rarityNegated = false;
 
   String? artist;

@@ -4,6 +4,7 @@ import 'package:commander_deck/screens/support/support_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'services/card_service.dart';
+import 'services/symbol_service.dart';
 import 'models/filters/filter_settings.dart';
 
 void main() {
@@ -18,17 +19,19 @@ class CommanderDeckApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => CardService()),
+        ChangeNotifierProvider(create: (_) => SymbolService()..loadSymbols()),
         ChangeNotifierProvider(create: (_) => SpellFilterSettings()),
         ChangeNotifierProvider(create: (_) => LandFilterSettings()),
       ],
       child: MaterialApp(
-        title: 'Commander''s Deck',
+        title: 'Command',
         home: const NavigationScreen(initialRoute: NavigationScreen.routeDaily),
         onGenerateRoute: (settings) {
           switch (settings.name) {
             case NavigationScreen.routeDaily:
             case NavigationScreen.routeSearch:
             case NavigationScreen.routeLandGuide:
+            case NavigationScreen.routeBrackets:
             case NavigationScreen.routeMore:
               return MaterialPageRoute(
                 builder: (context) => NavigationScreen(
@@ -37,15 +40,11 @@ class CommanderDeckApp extends StatelessWidget {
               );
             case NavigationScreen.routeSupport:
               return MaterialPageRoute(
-                builder: (context) => _NavigationWithOverlay(
-                  overlay: const SupportScreen(),
-                ),
+                builder: (context) => const SupportScreen(),
               );
             case NavigationScreen.routeAcknowledgements:
               return MaterialPageRoute(
-                builder: (context) => _NavigationWithOverlay(
-                  overlay: const AcknowledgementsScreen(),
-                ),
+                builder: (context) => const AcknowledgementsScreen(),
               );
             default:
               return MaterialPageRoute(
@@ -57,38 +56,5 @@ class CommanderDeckApp extends StatelessWidget {
         },
       ),
     );
-  }
-}
-
-class _NavigationWithOverlay extends StatefulWidget {
-  final Widget overlay;
-
-  const _NavigationWithOverlay({
-    required this.overlay,
-  });
-
-  @override
-  State<_NavigationWithOverlay> createState() => _NavigationWithOverlayState();
-}
-
-class _NavigationWithOverlayState extends State<_NavigationWithOverlay> {
-  bool _pushedOverlay = false;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!_pushedOverlay) {
-      _pushedOverlay = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => widget.overlay),
-        );
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return const NavigationScreen(initialRoute: NavigationScreen.routeMore);
   }
 }

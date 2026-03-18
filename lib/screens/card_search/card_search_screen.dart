@@ -159,18 +159,44 @@ class _CardSearchScreenState extends State<CardSearchScreen> {
                                 ),
                               ),
                       ),
-                      if (card.gameChanger)
+                      if (card.legalities['commander'] == 'banned')
                         Positioned(
                           top: 0,
                           left: 0,
                           child: Container(
-                            width: 20,  // Reduced from 40
-                            height: 20, // Reduced from 40
+                            width: 26,
+                            height: 20,
+                            decoration: const BoxDecoration(
+                              color: Colors.red,
+                              borderRadius: BorderRadius.only(
+                                topLeft: Radius.circular(2),
+                                bottomRight: Radius.circular(8),
+                              ),
+                            ),
+                            child: const Center(
+                              child: Text(
+                                'BAN',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 9,
+                                ),
+                              ),
+                            ),
+                          ),
+                        )
+                      else if (card.gameChanger)
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          child: Container(
+                            width: 20,
+                            height: 20,
                             decoration: const BoxDecoration(
                               color: AppColors.red,
                               borderRadius: BorderRadius.only(
-                                topLeft: Radius.circular(2),    // Reduced from 4
-                                bottomRight: Radius.circular(8), // Reduced from 16
+                                topLeft: Radius.circular(2),
+                                bottomRight: Radius.circular(8),
                               ),
                             ),
                             child: const Center(
@@ -179,7 +205,7 @@ class _CardSearchScreenState extends State<CardSearchScreen> {
                                 style: TextStyle(
                                   color: AppColors.white,
                                   fontWeight: FontWeight.bold,
-                                  fontSize: 10, // Added to scale text with container
+                                  fontSize: 10,
                                 ),
                               ),
                             ),

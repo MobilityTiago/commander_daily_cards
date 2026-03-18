@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 
 import '../../widgets/app_bar.dart';
@@ -8,6 +9,8 @@ import '../../widgets/card_zoom_view.dart';
 import '../../models/cards/card_enums.dart';
 import '../../models/cards/mtg_card.dart';
 import '../../services/card_service.dart';
+import '../../services/symbol_service.dart';
+import '../../widgets/mana_symbol_label.dart';
 
 class AdvancedSearchScreen extends StatefulWidget {
   const AdvancedSearchScreen({super.key});
@@ -21,6 +24,30 @@ enum ColorMode { includes, exact, atMost }
 enum SearchGame { paper, arena, mtgo }
 
 enum PriceCurrency { usd, eur }
+
+const List<String> _baseManaTokens = ['{W}', '{U}', '{B}', '{R}', '{G}', '{C}'];
+const List<String> _hybridManaTokens = [
+  '{W/U}',
+  '{W/B}',
+  '{U/B}',
+  '{U/R}',
+  '{B/R}',
+  '{B/G}',
+  '{R/G}',
+  '{R/W}',
+  '{G/W}',
+  '{G/U}',
+  '{2/W}',
+  '{2/U}',
+  '{2/B}',
+  '{2/R}',
+  '{2/G}',
+  '{W/P}',
+  '{U/P}',
+  '{B/P}',
+  '{R/P}',
+  '{G/P}',
+];
 
 class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
   final TextEditingController _nameController = TextEditingController();
@@ -36,10 +63,13 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
   final Set<MTGColor> _selectedColors = {};
   final Set<MTGColor> _selectedCommanderColors = {};
   ColorMode _colorMode = ColorMode.includes;
+  bool _exactManaCost = false;
+  bool _showHybridMana = false;
 
   bool _showRawQueryField = false;
 
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey _resultsSectionKey = GlobalKey();
   int _resultsToShow = 20;
 
   // Price filtering controllers
@@ -62,9 +92,10 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
   double? _tixMin;
   double? _tixMax;
 
-  String? _selectedRarity;
+  final Set<String> _selectedRarities = {};
 
   bool _isLoading = false;
+  bool _showArtCropOnly = false;
   List<MTGCard> _searchResults = [];
 
   @override
@@ -116,7 +147,33 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
     super.dispose();
   }
 
+  void _appendManaSymbol(String token) {
+    final current = _manaCostController.text;
+    final selection = _manaCostController.selection;
+
+    if (!selection.isValid) {
+      _manaCostController.text = '$current$token';
+      _manaCostController.selection = TextSelection.fromPosition(
+        TextPosition(offset: _manaCostController.text.length),
+      );
+      setState(() {});
+      return;
+    }
+
+    final start = selection.start.clamp(0, current.length);
+    final end = selection.end.clamp(0, current.length);
+    final replaced = current.replaceRange(start, end, token);
+
+    _manaCostController.text = replaced;
+    _manaCostController.selection = TextSelection.collapsed(
+      offset: start + token.length,
+    );
+    setState(() {});
+  }
+
   Future<void> _performSearch() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+
     final rawQuery = _rawQueryController.text.trim();
     final cardService = context.read<CardService>();
 
@@ -143,7 +200,20 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
       _resultsToShow = 20;
       _isLoading = false;
     });
-    _scrollController.jumpTo(0);
+
+    // Move the viewport to the results section after each search.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final contextForResults = _resultsSectionKey.currentContext;
+      if (contextForResults != null) {
+        Scrollable.ensureVisible(
+          contextForResults,
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeOut,
+          alignment: 0.02,
+        );
+      }
+    });
   }
 
   String _buildAdvancedQuery() {
@@ -169,7 +239,11 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
     }
 
     if (rawMana.isNotEmpty) {
-      parts.add('mana:"$rawMana"');
+      if (_exactManaCost) {
+        parts.add('mana=$rawMana');
+      } else {
+        parts.add('mana:"$rawMana"');
+      }
     }
 
     final minCmc = _cmc.start.round();
@@ -220,8 +294,10 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
       parts.add('set:$setCode');
     }
 
-    if (_selectedRarity != null && _selectedRarity!.isNotEmpty) {
-      parts.add('r:${_selectedRarity!.toLowerCase()}');
+    if (_selectedRarities.isNotEmpty) {
+      for (final rarity in _selectedRarities) {
+        parts.add('r:${rarity.toLowerCase()}');
+      }
     }
 
     if (artist.isNotEmpty) {
@@ -286,10 +362,17 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
       appBar: const CommanderAppBar(
         title: 'Advanced Search',
       ),
-      body: ListView(
-        controller: _scrollController,
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
-        children: [
+      body: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+          child: ListView(
+            controller: _scrollController,
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
+            children: [
           const Text(
             'Use Scryfall advanced query syntax (see: scryfall.com/advanced)',
             style: TextStyle(color: Colors.white70),
@@ -386,6 +469,56 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
             label: 'Mana Cost',
             hint: 'eg. {2}{G}{G}',
           ),
+          const SizedBox(height: 8),
+          Text(
+            'Tap symbols to add mana cost',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _baseManaTokens.map((token) {
+              return _ManaSymbolInputButton(
+                token: token,
+                onPressed: () => _appendManaSymbol(token),
+              );
+            }).toList(),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () {
+                setState(() {
+                  _showHybridMana = !_showHybridMana;
+                });
+              },
+              icon: Icon(_showHybridMana ? Icons.expand_less : Icons.expand_more),
+              label: Text(_showHybridMana ? 'Hide hybrid mana' : 'Show hybrid mana'),
+            ),
+          ),
+          if (_showHybridMana)
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _hybridManaTokens.map((token) {
+                return _ManaSymbolInputButton(
+                  token: token,
+                  onPressed: () => _appendManaSymbol(token),
+                );
+              }).toList(),
+            ),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Exact cost'),
+            subtitle: const Text('Match full mana cost exactly'),
+            value: _exactManaCost,
+            onChanged: (value) {
+              setState(() {
+                _exactManaCost = value;
+              });
+            },
+          ),
           const SizedBox(height: 16),
           Text(
             'Color',
@@ -424,7 +557,7 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
                   spacing: 8,
                   children: MTGColor.values.map((color) {
                     return FilterChip(
-                      label: Text(color.displayName),
+                      label: ManaSymbolLabel(color: color),
                       selected: _selectedColors.contains(color),
                       onSelected: (selected) {
                         setState(() {
@@ -451,7 +584,7 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
             spacing: 8,
             children: MTGColor.values.map((color) {
               return FilterChip(
-                label: Text(color.displayName),
+                label: ManaSymbolLabel(color: color),
                 selected: _selectedCommanderColors.contains(color),
                 onSelected: (selected) {
                   setState(() {
@@ -542,22 +675,43 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
             },
           ),
           const SizedBox(height: 16),
-          DropdownButtonFormField<String>(
-            initialValue: _selectedRarity,
-            items: const [
-              DropdownMenuItem(value: 'common', child: Text('Common')),
-              DropdownMenuItem(value: 'uncommon', child: Text('Uncommon')),
-              DropdownMenuItem(value: 'rare', child: Text('Rare')),
-              DropdownMenuItem(value: 'mythic', child: Text('Mythic')),
-            ],
-            onChanged: (value) {
-              setState(() {
-                _selectedRarity = value;
-              });
-            },
-            decoration: const InputDecoration(
-              labelText: 'Rarity',
-            ),
+          Text(
+            'Rarity',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Select multiple rarities. None selected means all rarities.',
+            style: TextStyle(color: Colors.white70),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: const ['common', 'uncommon', 'rare', 'mythic'].map((rarity) {
+              return rarity;
+            }).map((rarity) {
+              return FilterChip(
+                label: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _RarityDot(rarity: rarity),
+                    const SizedBox(width: 6),
+                    Text(_rarityLabel(rarity)),
+                  ],
+                ),
+                selected: _selectedRarities.contains(rarity),
+                onSelected: (selected) {
+                  setState(() {
+                    if (selected) {
+                      _selectedRarities.add(rarity);
+                    } else {
+                      _selectedRarities.remove(rarity);
+                    }
+                  });
+                },
+              );
+            }).toList(),
           ),
           const SizedBox(height: 16),
           Autocomplete<String>(
@@ -805,92 +959,241 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
           ),
           const SizedBox(height: 24),
           if (_searchResults.isNotEmpty) ...[
-            Text(
-              'Results (${_searchResults.length})',
-              style: Theme.of(context).textTheme.titleMedium,
+            SizedBox(key: _resultsSectionKey),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Results (${_searchResults.length})',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                const Text('Art crop only'),
+                Switch.adaptive(
+                  value: _showArtCropOnly,
+                  onChanged: (value) {
+                    setState(() {
+                      _showArtCropOnly = value;
+                    });
+                  },
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            GridView.builder(
-              physics: const NeverScrollableScrollPhysics(),
-              shrinkWrap: true,
-              padding: const EdgeInsets.all(0),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                childAspectRatio: 0.715,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
-              ),
-              itemCount: math.min(_searchResults.length, _resultsToShow),
-              itemBuilder: (context, index) {
-                final card = _searchResults[index];
-                return Card(
-                  clipBehavior: Clip.antiAlias,
-                  child: Stack(
-                    children: [
-                      InkWell(
-                        onTap: () {
-                          if (card.imageUris?.normal != null) {
-                            Navigator.of(context).push(
-                              PageRouteBuilder(
-                                opaque: false,
-                                pageBuilder: (context, _, __) => CardZoomView(
-                                  cards: _searchResults,
-                                  initialIndex: index,
+            const SizedBox(height: 12),
+            if (_showArtCropOnly)
+              ListView.separated(
+                physics: const NeverScrollableScrollPhysics(),
+                shrinkWrap: true,
+                itemCount: math.min(_searchResults.length, _resultsToShow),
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  final card = _searchResults[index];
+                  final artImage = card.imageUris?.artCrop ?? card.imageUris?.normal;
+                  return Card(
+                    clipBehavior: Clip.antiAlias,
+                    child: Stack(
+                      children: [
+                        InkWell(
+                          onTap: () {
+                            if (card.imageUris?.normal != null) {
+                              Navigator.of(context).push(
+                                PageRouteBuilder(
+                                  opaque: false,
+                                  pageBuilder: (context, _, __) => CardZoomView(
+                                    cards: _searchResults,
+                                    initialIndex: index,
+                                  ),
+                                  transitionsBuilder: (context, animation, _, child) {
+                                    return FadeTransition(
+                                      opacity: animation,
+                                      child: child,
+                                    );
+                                  },
                                 ),
-                                transitionsBuilder: (context, animation, _, child) {
-                                  return FadeTransition(
-                                    opacity: animation,
-                                    child: child,
-                                  );
-                                },
-                              ),
-                            );
-                          }
-                        },
-                        child: card.imageUris?.normal != null
-                            ? Image.network(
-                                card.imageUris!.normal!,
-                                fit: BoxFit.cover,
-                              )
-                            : const Center(
-                                child: Icon(
-                                  Icons.broken_image,
-                                  size: 48,
-                                  color: Color(0xFF2A2A2A),
+                              );
+                            }
+                          },
+                          child: AspectRatio(
+                            aspectRatio: 1,
+                            child: artImage != null
+                                ? Image.network(
+                                    artImage,
+                                    fit: BoxFit.cover,
+                                  )
+                                : const Center(
+                                    child: Icon(
+                                      Icons.broken_image,
+                                      size: 48,
+                                      color: Color(0xFF2A2A2A),
+                                    ),
+                                  ),
+                          ),
+                        ),
+                        if (card.legalities['commander'] == 'banned')
+                          Positioned(
+                            top: 0,
+                            left: 0,
+                            child: Container(
+                              width: 30,
+                              height: 22,
+                              decoration: const BoxDecoration(
+                                color: Colors.red,
+                                borderRadius: BorderRadius.only(
+                                  topLeft: Radius.circular(2),
+                                  bottomRight: Radius.circular(8),
                                 ),
                               ),
-                      ),
-                      if (card.gameChanger)
-                        Positioned(
-                          top: 0,
-                          left: 0,
-                          child: Container(
-                            width: 20,
-                            height: 20,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFFFF0000),
-                              borderRadius: BorderRadius.only(
-                                topLeft: Radius.circular(2),
-                                bottomRight: Radius.circular(8),
+                              child: const Center(
+                                child: Text(
+                                  'BAN',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 10,
+                                  ),
+                                ),
                               ),
                             ),
-                            child: const Center(
-                              child: Text(
-                                'GC',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 10,
+                          )
+                        else if (card.gameChanger)
+                          Positioned(
+                            top: 0,
+                            left: 0,
+                            child: Container(
+                              width: 22,
+                              height: 22,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFFF0000),
+                                borderRadius: BorderRadius.only(
+                                  topLeft: Radius.circular(2),
+                                  bottomRight: Radius.circular(8),
+                                ),
+                              ),
+                              child: const Center(
+                                child: Text(
+                                  'GC',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 10,
+                                  ),
                                 ),
                               ),
                             ),
                           ),
+                      ],
+                    ),
+                  );
+                },
+              )
+            else
+              GridView.builder(
+                physics: const NeverScrollableScrollPhysics(),
+                shrinkWrap: true,
+                padding: const EdgeInsets.all(0),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  childAspectRatio: 0.715,
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 16,
+                ),
+                itemCount: math.min(_searchResults.length, _resultsToShow),
+                itemBuilder: (context, index) {
+                  final card = _searchResults[index];
+                  return Card(
+                    clipBehavior: Clip.antiAlias,
+                    child: Stack(
+                      children: [
+                        InkWell(
+                          onTap: () {
+                            if (card.imageUris?.normal != null) {
+                              Navigator.of(context).push(
+                                PageRouteBuilder(
+                                  opaque: false,
+                                  pageBuilder: (context, _, __) => CardZoomView(
+                                    cards: _searchResults,
+                                    initialIndex: index,
+                                  ),
+                                  transitionsBuilder: (context, animation, _, child) {
+                                    return FadeTransition(
+                                      opacity: animation,
+                                      child: child,
+                                    );
+                                  },
+                                ),
+                              );
+                            }
+                          },
+                          child: card.imageUris?.normal != null
+                              ? Image.network(
+                                  card.imageUris!.normal!,
+                                  fit: BoxFit.cover,
+                                )
+                              : const Center(
+                                  child: Icon(
+                                    Icons.broken_image,
+                                    size: 48,
+                                    color: Color(0xFF2A2A2A),
+                                  ),
+                                ),
                         ),
-                    ],
-                  ),
-                );
-              },
-            ),
+                        if (card.legalities['commander'] == 'banned')
+                          Positioned(
+                            top: 0,
+                            left: 0,
+                            child: Container(
+                              width: 26,
+                              height: 20,
+                              decoration: const BoxDecoration(
+                                color: Colors.red,
+                                borderRadius: BorderRadius.only(
+                                  topLeft: Radius.circular(2),
+                                  bottomRight: Radius.circular(8),
+                                ),
+                              ),
+                              child: const Center(
+                                child: Text(
+                                  'BAN',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 9,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          )
+                        else if (card.gameChanger)
+                          Positioned(
+                            top: 0,
+                            left: 0,
+                            child: Container(
+                              width: 20,
+                              height: 20,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFFF0000),
+                                borderRadius: BorderRadius.only(
+                                  topLeft: Radius.circular(2),
+                                  bottomRight: Radius.circular(8),
+                                ),
+                              ),
+                              child: const Center(
+                                child: Text(
+                                  'GC',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                },
+              ),
             if (_resultsToShow < _searchResults.length)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 16),
@@ -900,6 +1203,8 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
               ),
           ]
         ],
+          ),
+        ),
       ),
       bottomNavigationBar: Padding(
         padding: const EdgeInsets.all(16),
@@ -959,6 +1264,127 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
           onChanged: (_) => setState(() {}),
         ),
       ],
+    );
+  }
+}
+
+class _ManaSymbolInputButton extends StatelessWidget {
+  final String token;
+  final VoidCallback onPressed;
+
+  const _ManaSymbolInputButton({
+    required this.token,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final symbolService = context.watch<SymbolService>();
+    final svgData = symbolService.svgDataByToken(token);
+
+    if (svgData == null || svgData.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        symbolService.requestRefreshOnMiss(token);
+      });
+    }
+
+    return InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        width: 36,
+        height: 36,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white30),
+          color: Colors.white10,
+        ),
+        child: svgData != null && svgData.isNotEmpty
+            ? SvgPicture.string(
+                svgData,
+                width: 20,
+                height: 20,
+              )
+            : Text(
+                token.replaceAll('{', '').replaceAll('}', ''),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+      ),
+    );
+  }
+}
+
+String _rarityLabel(String rarity) {
+  switch (rarity) {
+    case 'common':
+      return 'Common';
+    case 'uncommon':
+      return 'Uncommon';
+    case 'rare':
+      return 'Rare';
+    case 'mythic':
+      return 'Mythic';
+    default:
+      return rarity;
+  }
+}
+
+class _RarityDot extends StatelessWidget {
+  final String rarity;
+
+  const _RarityDot({required this.rarity});
+
+  @override
+  Widget build(BuildContext context) {
+    BoxDecoration decoration;
+
+    switch (rarity) {
+      case 'common':
+        decoration = const BoxDecoration(
+          color: Colors.black,
+          shape: BoxShape.circle,
+        );
+        break;
+      case 'uncommon':
+        decoration = BoxDecoration(
+          color: Colors.grey.shade400,
+          shape: BoxShape.circle,
+        );
+        break;
+      case 'rare':
+        decoration = const BoxDecoration(
+          color: Color(0xFFD4AF37),
+          shape: BoxShape.circle,
+        );
+        break;
+      case 'mythic':
+        decoration = const BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFFFFD180),
+              Color(0xFFFF8C00),
+              Color(0xFFFF6D00),
+            ],
+          ),
+        );
+        break;
+      default:
+        decoration = const BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
+        );
+    }
+
+    return Container(
+      width: 12,
+      height: 12,
+      decoration: decoration,
     );
   }
 }

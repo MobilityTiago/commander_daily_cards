@@ -36,6 +36,10 @@ class AppBottomNavBar extends StatelessWidget {
           label: 'Land',
         ),
         BottomNavigationBarItem(
+          icon: Icon(Icons.military_tech),
+          label: 'Brackets',
+        ),
+        BottomNavigationBarItem(
           icon: Icon(Icons.more_horiz),
           label: 'More',
         ),

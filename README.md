@@ -1,5 +1,5 @@
 // README.md
-# Commander's Deck
+# Command
 
 A Flutter app that provides daily card suggestions for Magic: The Gathering Commander decks using the Scryfall API.
 

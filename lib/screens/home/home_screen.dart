@@ -99,7 +99,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   backgroundColor: Colors.transparent,
                   foregroundColor: Colors.white,
                   iconTheme: const IconThemeData(color: Colors.white),
-                  title: const Text("Commander's Deck"),
+                  title: const Text('Command'),
                   actions: [
                     IconButton(
                       onPressed: () {
@@ -168,6 +168,14 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ),
                                   ),
                                   const SizedBox(height: 4),
+                                  Text(
+                                    backgroundCard?.name ?? 'Unknown Card',
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
                                   Text(
                                     'Illustrated by ${backgroundCard?.artist ?? 'Unknown Artist'}',
                                     style: const TextStyle(
