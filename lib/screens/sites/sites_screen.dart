@@ -71,8 +71,7 @@ class _WizardsView extends StatelessWidget {
             child: TabBarView(
               children: [
                 _SiteWebView(
-                  initialUrl:
-                      'https://magic.wizards.com/en/news/announcements',
+                  initialUrl: 'https://magic.wizards.com/en/news/announcements',
                   allowedDomain: 'magic.wizards.com',
                 ),
                 _SiteWebView(
@@ -162,8 +161,7 @@ class _SiteWebViewState extends State<_SiteWebView> {
           child: Stack(
             children: [
               WebViewWidget(controller: _controller),
-              if (_isLoading)
-                const Center(child: CircularProgressIndicator()),
+              if (_isLoading) const Center(child: CircularProgressIndicator()),
             ],
           ),
         ),

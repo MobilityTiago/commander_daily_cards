@@ -12,6 +12,12 @@ import '../models/service/bulk_data.dart';
 import '../models/filters/filter_settings.dart';
 
 class CardService extends ChangeNotifier {
+  static const Map<String, String> _scryfallHeaders = {
+    'User-Agent':
+        'Command/1.0 (https://github.com/yourname/commander_daily_cards)',
+    'Accept': 'application/json',
+  };
+
   bool _isLoading = false;
   MTGCard? _dailyRegularCard;
   MTGCard? _dailyGameChangerCard;
@@ -30,7 +36,8 @@ class CardService extends ChangeNotifier {
   MTGCard? get dailyGameChangerLand => _dailyGameChangerLand;
   List<MTGCard> get dailySuggestionCards => _dailySuggestionCards;
   List<MTGCard> get allCards => List.unmodifiable(_allCards);
-  List<MTGCard> get selectedCommanders => List.unmodifiable(_selectedCommanders);
+  List<MTGCard> get selectedCommanders =>
+      List.unmodifiable(_selectedCommanders);
   MTGCard? get selectedCommander =>
       _selectedCommanders.isEmpty ? null : _selectedCommanders.first;
   MTGCard? get selectedCommanderPartner =>
@@ -42,7 +49,9 @@ class CardService extends ChangeNotifier {
     }
     return colors.toList()..sort();
   }
-  String get selectedCommanderNames => _selectedCommanders.map((c) => c.name).join(' + ');
+
+  String get selectedCommanderNames =>
+      _selectedCommanders.map((c) => c.name).join(' + ');
 
   /// All cards in the local dataset that are marked as Game Changers.
   List<MTGCard> get allGameChangerCards =>
@@ -81,9 +90,13 @@ class CardService extends ChangeNotifier {
   static const String _gameChangerLandKey = 'DailyGameChangerLand';
   static const String _appBarCardKey = 'DailyAppBarCardId';
   static const String _selectedCommanderKey = 'SelectedCommander';
+  static const String _cardObjectFetchTimesKey = 'CardObjectFetchTimes';
 
-  Future<void> loadInitialData(SpellFilterSettings nonLandFilters, LandFilterSettings landFilters) async {
+  bool _cardObjectFetchTimesLoaded = false;
+  final Map<String, DateTime> _cardObjectFetchTimes = {};
 
+  Future<void> loadInitialData(SpellFilterSettings nonLandFilters,
+      LandFilterSettings landFilters) async {
     _isLoading = true;
     notifyListeners();
 
@@ -126,7 +139,8 @@ class CardService extends ChangeNotifier {
     }
   }
 
-  Future<void> refreshDailyCards(SpellFilterSettings nonLandFilters, LandFilterSettings landFilters) async {
+  Future<void> refreshDailyCards(SpellFilterSettings nonLandFilters,
+      LandFilterSettings landFilters) async {
     await generateDailyCards(nonLandFilters, landFilters);
   }
 
@@ -164,6 +178,59 @@ class CardService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Returns a card with fresh pricing data.
+  ///
+  /// If this card has not been refreshed within [maxAge], and the latest bulk
+  /// dataset fetch is also older than [maxAge], this will fetch the single card
+  /// from Scryfall's object endpoint and return the updated object.
+  Future<MTGCard> getCardWithFreshPricing(
+    MTGCard card, {
+    Duration maxAge = const Duration(hours: 8),
+  }) async {
+    await _loadCardObjectFetchTimesIfNeeded();
+
+    final latestKnownUpdate = await _latestKnownCardDataUpdate(card.id);
+    if (latestKnownUpdate != null &&
+        DateTime.now().difference(latestKnownUpdate) <= maxAge) {
+      return card;
+    }
+
+    try {
+      final response = await http
+          .get(
+            Uri.parse('https://api.scryfall.com/cards/${card.id}'),
+            headers: _scryfallHeaders,
+          )
+          .timeout(const Duration(seconds: 12));
+
+      if (response.statusCode != 200) {
+        return card;
+      }
+
+      final jsonMap = json.decode(response.body) as Map<String, dynamic>;
+      final refreshed = MTGCard.fromJson(jsonMap);
+
+      final now = DateTime.now();
+      _cardObjectFetchTimes[card.id] = now;
+      await _persistCardObjectFetchTimes();
+      _replaceCardIfPresent(refreshed);
+
+      return refreshed;
+    } catch (e) {
+      debugPrint('Error refreshing card ${card.id}: $e');
+      return card;
+    }
+  }
+
+  /// Returns the most recent known data timestamp for this card id.
+  ///
+  /// This combines per-card fetch time and bulk-data fetch time and returns
+  /// whichever is newer.
+  Future<DateTime?> getLatestKnownUpdateForCard(String cardId) async {
+    await _loadCardObjectFetchTimesIfNeeded();
+    return _latestKnownCardDataUpdate(cardId);
+  }
+
   Future<void> _saveSelectedCommanders() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -176,7 +243,7 @@ class CardService extends ChangeNotifier {
         await prefs.remove(_selectedCommanderKey);
       }
     } catch (e) {
-        debugPrint('Error saving selected commanders: $e');
+      debugPrint('Error saving selected commanders: $e');
     }
   }
 
@@ -378,9 +445,8 @@ class CardService extends ChangeNotifier {
         continue;
       }
       if (content.startsWith('r:') || content.startsWith('rarity:')) {
-        final value = content.contains(':')
-            ? _unquote(content.split(':')[1])
-            : null;
+        final value =
+            content.contains(':') ? _unquote(content.split(':')[1]) : null;
         parsed.rarity = value;
         if (value != null && value.isNotEmpty) {
           parsed.rarities.add(value.toLowerCase());
@@ -505,14 +571,10 @@ class CardService extends ChangeNotifier {
           final queryRaw = queryMana.toLowerCase().trim();
 
           final tokenRegex = RegExp(r'\{[^}]+\}');
-          final cardTokens = tokenRegex
-              .allMatches(cardRaw)
-              .map((m) => m.group(0)!)
-              .toList();
-          final queryTokens = tokenRegex
-              .allMatches(queryRaw)
-              .map((m) => m.group(0)!)
-              .toList();
+          final cardTokens =
+              tokenRegex.allMatches(cardRaw).map((m) => m.group(0)!).toList();
+          final queryTokens =
+              tokenRegex.allMatches(queryRaw).map((m) => m.group(0)!).toList();
 
           // If either side has no mana tokens, fall back to plain contains.
           if (cardTokens.isEmpty || queryTokens.isEmpty) {
@@ -535,7 +597,8 @@ class CardService extends ChangeNotifier {
           return true;
         }
 
-        final contains = manaContainsOrderInsensitive(card.manaCost, query.manaCost!);
+        final contains =
+            manaContainsOrderInsensitive(card.manaCost, query.manaCost!);
         matches = matches && (query.manaNegated ? !contains : contains);
       }
       if (query.manaCostExact != null) {
@@ -563,33 +626,48 @@ class CardService extends ChangeNotifier {
       final cardIdentity = (card.colorIdentity ?? []).join().toUpperCase();
       if (query.colorIdentity != null && query.colorIdentity!.isNotEmpty) {
         final target = query.colorIdentity!.toUpperCase();
-        final contains = target.split('').every((c) => cardIdentity.contains(c));
+        final contains =
+            target.split('').every((c) => cardIdentity.contains(c));
         matches = matches && (query.colorNegated ? !contains : contains);
       }
-      if (query.colorIdentityExact != null && query.colorIdentityExact!.isNotEmpty) {
+      if (query.colorIdentityExact != null &&
+          query.colorIdentityExact!.isNotEmpty) {
         final target = query.colorIdentityExact!.toUpperCase();
         final exact = cardIdentity == target;
         matches = matches && (query.colorNegated ? !exact : exact);
       }
-      if (query.colorIdentityAtMost != null && query.colorIdentityAtMost!.isNotEmpty) {
+      if (query.colorIdentityAtMost != null &&
+          query.colorIdentityAtMost!.isNotEmpty) {
         final target = query.colorIdentityAtMost!.toUpperCase();
-        final atMost = cardIdentity.split('').toSet().difference(target.split('').toSet()).isEmpty;
+        final atMost = cardIdentity
+            .split('')
+            .toSet()
+            .difference(target.split('').toSet())
+            .isEmpty;
         matches = matches && (query.colorNegated ? !atMost : atMost);
       }
 
-      if (query.commanderIdentityExact != null && query.commanderIdentityExact!.isNotEmpty) {
+      if (query.commanderIdentityExact != null &&
+          query.commanderIdentityExact!.isNotEmpty) {
         final target = query.commanderIdentityExact!.toUpperCase();
         final exact = cardIdentity == target;
         matches = matches && (query.commanderNegated ? !exact : exact);
       }
-      if (query.commanderIdentityAtMost != null && query.commanderIdentityAtMost!.isNotEmpty) {
+      if (query.commanderIdentityAtMost != null &&
+          query.commanderIdentityAtMost!.isNotEmpty) {
         final target = query.commanderIdentityAtMost!.toUpperCase();
-        final atMost = cardIdentity.split('').toSet().difference(target.split('').toSet()).isEmpty;
+        final atMost = cardIdentity
+            .split('')
+            .toSet()
+            .difference(target.split('').toSet())
+            .isEmpty;
         matches = matches && (query.commanderNegated ? !atMost : atMost);
       }
-      if (query.commanderIdentity != null && query.commanderIdentity!.isNotEmpty) {
+      if (query.commanderIdentity != null &&
+          query.commanderIdentity!.isNotEmpty) {
         final target = query.commanderIdentity!.toUpperCase();
-        final contains = target.split('').every((c) => cardIdentity.contains(c));
+        final contains =
+            target.split('').every((c) => cardIdentity.contains(c));
         matches = matches && (query.commanderNegated ? !contains : contains);
       }
 
@@ -657,7 +735,8 @@ class CardService extends ChangeNotifier {
       }
 
       if (query.games.isNotEmpty) {
-        final cardGames = (card.games ?? []).map((g) => g.toLowerCase()).toList();
+        final cardGames =
+            (card.games ?? []).map((g) => g.toLowerCase()).toList();
         final contains = query.games
             .map((g) => g.toLowerCase())
             .every((g) => cardGames.contains(g));
@@ -700,16 +779,16 @@ class CardService extends ChangeNotifier {
   Future<bool> _shouldUpdateCardData() async {
     final prefs = await SharedPreferences.getInstance();
     final lastUpdateString = prefs.getString(_lastUpdateKey);
-    
+
     if (lastUpdateString == null) return true;
 
     final lastUpdate = DateTime.parse(lastUpdateString);
     final twoWeeksAgo = DateTime.now().subtract(const Duration(days: 14));
-    
+
     return lastUpdate.isBefore(twoWeeksAgo);
   }
 
-   Future<bool> _shouldGenerateNewDailyCards() async {
+  Future<bool> _shouldGenerateNewDailyCards() async {
     // Check if regular cards are null
     if (_dailyRegularCard == null || _dailyRegularLand == null) {
       return true;
@@ -730,12 +809,12 @@ class CardService extends ChangeNotifier {
 
     final prefs = await SharedPreferences.getInstance();
     final lastDateString = prefs.getString(_dailyCardDateKey);
-    
+
     if (lastDateString == null) return true;
 
     final lastDate = DateTime.parse(lastDateString);
     final today = DateTime.now();
-    
+
     return !_isSameDay(lastDate, today);
   }
 
@@ -749,7 +828,8 @@ class CardService extends ChangeNotifier {
     try {
       // Get bulk data info
       const headers = {
-        'User-Agent': 'Command/1.0 (https://github.com/yourname/commander_daily_cards)',
+        'User-Agent':
+            'Command/1.0 (https://github.com/yourname/commander_daily_cards)',
         'Accept': 'application/json',
       };
 
@@ -797,8 +877,7 @@ class CardService extends ChangeNotifier {
       final cards = cardJsonList
           .map((cardJson) => MTGCard.fromJson(cardJson))
           .where((card) =>
-              card.isCommanderLegal ||
-              card.legalities['commander'] == 'banned')
+              card.isCommanderLegal || card.legalities['commander'] == 'banned')
           .toList();
 
       _allCards = cards;
@@ -809,7 +888,6 @@ class CardService extends ChangeNotifier {
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_lastUpdateKey, DateTime.now().toIso8601String());
-
     } catch (e, st) {
       debugPrint('Error downloading card data: $e\n$st');
       await _loadLocalCardData();
@@ -828,9 +906,8 @@ class CardService extends ChangeNotifier {
 
       final cardsJsonString = await file.readAsString();
       final List<dynamic> cardJsonList = json.decode(cardsJsonString);
-      _allCards = cardJsonList
-          .map((cardJson) => MTGCard.fromJson(cardJson))
-          .toList();
+      _allCards =
+          cardJsonList.map((cardJson) => MTGCard.fromJson(cardJson)).toList();
     } catch (e) {
       debugPrint('Error loading local card data: $e');
     }
@@ -848,12 +925,17 @@ class CardService extends ChangeNotifier {
     }
   }
 
-  Future<void> generateDailyCards(SpellFilterSettings nonLandFilters, LandFilterSettings landFilters) async {
-    final filteredCards = _allCards.where((card) =>
-        nonLandFilters.matchesCard(card) && !_isCommanderBanned(card)).toList();
+  Future<void> generateDailyCards(SpellFilterSettings nonLandFilters,
+      LandFilterSettings landFilters) async {
+    final filteredCards = _allCards
+        .where((card) =>
+            nonLandFilters.matchesCard(card) && !_isCommanderBanned(card))
+        .toList();
 
-    final filteredLands = _allCards.where((card) =>
-        landFilters.matchesCard(card) && !_isCommanderBanned(card)).toList();
+    final filteredLands = _allCards
+        .where((card) =>
+            landFilters.matchesCard(card) && !_isCommanderBanned(card))
+        .toList();
 
     if (filteredCards.isEmpty) {
       debugPrint('No cards match the current filters');
@@ -939,7 +1021,7 @@ class CardService extends ChangeNotifier {
   Future<void> _loadSavedDailyCards() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      
+
       final regularCardJson = prefs.getString(_regularCardKey);
       if (regularCardJson != null) {
         _dailyRegularCard = MTGCard.fromJson(json.decode(regularCardJson));
@@ -947,7 +1029,8 @@ class CardService extends ChangeNotifier {
 
       final gameChangerCardJson = prefs.getString(_gameChangerCardKey);
       if (gameChangerCardJson != null) {
-        _dailyGameChangerCard = MTGCard.fromJson(json.decode(gameChangerCardJson));
+        _dailyGameChangerCard =
+            MTGCard.fromJson(json.decode(gameChangerCardJson));
       }
 
       final regularLandCardJson = prefs.getString(_regularLandKey);
@@ -957,7 +1040,8 @@ class CardService extends ChangeNotifier {
 
       final gameChangerLandJson = prefs.getString(_gameChangerLandKey);
       if (gameChangerLandJson != null) {
-        _dailyGameChangerLand = MTGCard.fromJson(json.decode(gameChangerLandJson));
+        _dailyGameChangerLand =
+            MTGCard.fromJson(json.decode(gameChangerLandJson));
       }
 
       final selectedCommanderJson = prefs.getString(_selectedCommanderKey);
@@ -965,9 +1049,7 @@ class CardService extends ChangeNotifier {
         final decoded = json.decode(selectedCommanderJson);
         if (decoded is List) {
           _selectedCommanders = _sanitizeSelectedCommanders(
-            decoded
-                .whereType<Map<String, dynamic>>()
-                .map(MTGCard.fromJson),
+            decoded.whereType<Map<String, dynamic>>().map(MTGCard.fromJson),
           );
         } else if (decoded is Map<String, dynamic>) {
           _selectedCommanders = _sanitizeSelectedCommanders([
@@ -986,11 +1068,101 @@ class CardService extends ChangeNotifier {
     }
   }
 
+  Future<void> _loadCardObjectFetchTimesIfNeeded() async {
+    if (_cardObjectFetchTimesLoaded) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_cardObjectFetchTimesKey);
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        final decoded = json.decode(raw);
+        if (decoded is Map<String, dynamic>) {
+          decoded.forEach((key, value) {
+            if (value is String) {
+              final timestamp = DateTime.tryParse(value);
+              if (timestamp != null) {
+                _cardObjectFetchTimes[key] = timestamp;
+              }
+            }
+          });
+        }
+      } catch (e) {
+        debugPrint('Error loading card object fetch times: $e');
+      }
+    }
+
+    _cardObjectFetchTimesLoaded = true;
+  }
+
+  Future<void> _persistCardObjectFetchTimes() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonMap = <String, String>{
+      for (final entry in _cardObjectFetchTimes.entries)
+        entry.key: entry.value.toIso8601String(),
+    };
+    await prefs.setString(_cardObjectFetchTimesKey, json.encode(jsonMap));
+  }
+
+  Future<DateTime?> _latestKnownCardDataUpdate(String cardId) async {
+    final perCard = _cardObjectFetchTimes[cardId];
+
+    final prefs = await SharedPreferences.getInstance();
+    final bulkUpdateRaw = prefs.getString(_lastUpdateKey);
+    final bulkUpdate =
+        bulkUpdateRaw != null ? DateTime.tryParse(bulkUpdateRaw) : null;
+
+    if (perCard == null) return bulkUpdate;
+    if (bulkUpdate == null) return perCard;
+    return perCard.isAfter(bulkUpdate) ? perCard : bulkUpdate;
+  }
+
+  void _replaceCardIfPresent(MTGCard refreshed) {
+    bool changed = false;
+
+    final allCardsIndex = _allCards.indexWhere((c) => c.id == refreshed.id);
+    if (allCardsIndex != -1) {
+      _allCards[allCardsIndex] = refreshed;
+      changed = true;
+      // Persist to local cache so refreshed prices survive app restarts.
+      unawaited(_saveCardDataLocally(_allCards));
+    }
+
+    if (_dailyRegularCard?.id == refreshed.id) {
+      _dailyRegularCard = refreshed;
+      changed = true;
+    }
+    if (_dailyGameChangerCard?.id == refreshed.id) {
+      _dailyGameChangerCard = refreshed;
+      changed = true;
+    }
+    if (_dailyRegularLand?.id == refreshed.id) {
+      _dailyRegularLand = refreshed;
+      changed = true;
+    }
+    if (_dailyGameChangerLand?.id == refreshed.id) {
+      _dailyGameChangerLand = refreshed;
+      changed = true;
+    }
+
+    final selectedIndex =
+        _selectedCommanders.indexWhere((card) => card.id == refreshed.id);
+    if (selectedIndex != -1) {
+      _selectedCommanders[selectedIndex] = refreshed;
+      changed = true;
+      unawaited(_saveSelectedCommanders());
+    }
+
+    if (changed) {
+      notifyListeners();
+    }
+  }
+
   Future<void> _saveDailyCards() async {
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      await prefs.setString(_dailyCardDateKey, DateTime.now().toIso8601String());
+      await prefs.setString(
+          _dailyCardDateKey, DateTime.now().toIso8601String());
 
       if (_dailyRegularCard != null) {
         await prefs.setString(

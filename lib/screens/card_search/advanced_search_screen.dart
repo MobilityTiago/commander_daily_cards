@@ -1,16 +1,23 @@
 import 'dart:math' as math;
+import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../widgets/app_bar.dart';
 import '../../widgets/card_zoom_view.dart';
 import '../../models/cards/card_enums.dart';
 import '../../models/cards/mtg_card.dart';
 import '../../services/card_service.dart';
+import '../../services/set_service.dart';
 import '../../services/symbol_service.dart';
-import '../../styles/colors.dart';
+import '../../services/user_preferences_service.dart';
+import '../navigation/navigation_screen.dart';
+import '../../widgets/card_badges_overlay.dart';
+import '../../widgets/flip_animated_image.dart';
 import '../../widgets/mana_symbol_label.dart';
 
 class AdvancedSearchScreen extends StatefulWidget {
@@ -25,6 +32,18 @@ enum ColorMode { includes, exact, atMost }
 enum SearchGame { paper, arena, mtgo }
 
 enum PriceCurrency { usd, eur }
+
+class _SetOption {
+  final String code;
+  final String name;
+  final String? iconSvg;
+
+  const _SetOption({
+    required this.code,
+    required this.name,
+    this.iconSvg,
+  });
+}
 
 const List<String> _baseManaTokens = ['{W}', '{U}', '{B}', '{R}', '{G}', '{C}'];
 const List<String> _hybridManaTokens = [
@@ -51,6 +70,8 @@ const List<String> _hybridManaTokens = [
 ];
 
 class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
+  static const String _persistedStateKey = 'advanced_search_filter_state';
+
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _oracleController = TextEditingController();
   final TextEditingController _typeController = TextEditingController();
@@ -99,18 +120,66 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
   bool _isLoading = false;
   bool _showArtCropOnly = false;
   List<MTGCard> _searchResults = [];
+  final Set<String> _flippedCardIds = <String>{};
   CardService? _cardService;
+  SetService? _setService;
+  UserPreferencesService? _userPreferencesService;
   List<String> _lastCommanderIds = const [];
+
+  bool _isFlipped(MTGCard card) => _flippedCardIds.contains(card.id);
+
+  void _toggleFlipped(MTGCard card) {
+    if (!card.hasDoubleFacedImages) return;
+    setState(() {
+      if (!_flippedCardIds.add(card.id)) {
+        _flippedCardIds.remove(card.id);
+      }
+    });
+  }
+
+  String? _displayArtImage(MTGCard card) {
+    if (!card.hasDoubleFacedImages) {
+      return card.mainFaceArtCropUrl ?? card.mainFaceImageUrl;
+    }
+
+    if (_isFlipped(card)) {
+      return card.backFaceArtCropUrl ??
+          card.backFaceImageUrl ??
+          card.mainFaceArtCropUrl ??
+          card.mainFaceImageUrl;
+    }
+
+    return card.mainFaceArtCropUrl ??
+        card.mainFaceImageUrl ??
+        card.backFaceArtCropUrl ??
+        card.backFaceImageUrl;
+  }
+
+  String? _displayNormalImage(MTGCard card) {
+    if (!card.hasDoubleFacedImages) {
+      return card.mainFaceImageUrl;
+    }
+
+    if (_isFlipped(card)) {
+      return card.backFaceImageUrl ?? card.mainFaceImageUrl;
+    }
+
+    return card.mainFaceImageUrl ?? card.backFaceImageUrl;
+  }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_loadPersistedStateIfEnabled());
+    });
     _scrollController.addListener(() {
       if (_scrollController.position.pixels >=
               _scrollController.position.maxScrollExtent - 200 &&
           _resultsToShow < _searchResults.length) {
         setState(() {
-          _resultsToShow = (_resultsToShow + 20).clamp(0, _searchResults.length);
+          _resultsToShow =
+              (_resultsToShow + 20).clamp(0, _searchResults.length);
         });
       }
     });
@@ -138,16 +207,59 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final nextCardService = context.read<CardService>();
+    final nextSetService = context.read<SetService>();
+    final nextUserPreferencesService = context.read<UserPreferencesService>();
+
     if (!identical(_cardService, nextCardService)) {
       _cardService?.removeListener(_handleCommanderSelectionChanged);
       _cardService = nextCardService;
       _cardService?.addListener(_handleCommanderSelectionChanged);
       _syncCommanderLockFromSelection();
     }
+
+    if (!identical(_userPreferencesService, nextUserPreferencesService)) {
+      _userPreferencesService = nextUserPreferencesService;
+    }
+
+    if (!identical(_setService, nextSetService)) {
+      _setService = nextSetService;
+    }
+  }
+
+  String _resolveSetCodeForQuery(String rawInput) {
+    final value = rawInput.trim();
+    if (value.isEmpty) return value;
+
+    final trailingCodeMatch = RegExp(r'\(([a-zA-Z0-9]+)\)\s*$')
+        .firstMatch(value);
+    if (trailingCodeMatch != null) {
+      final matched = trailingCodeMatch.group(1);
+      if (matched != null && matched.isNotEmpty) {
+        return matched.toLowerCase();
+      }
+    }
+
+    final sets = _setService?.sets ?? const [];
+    final lower = value.toLowerCase();
+    for (final set in sets) {
+      if (set.code == lower || set.name.toLowerCase() == lower) {
+        return set.code;
+      }
+    }
+
+    return value;
   }
 
   @override
   void dispose() {
+    final snapshot = _buildPersistedStateSnapshot();
+    final persistentFiltersEnabled =
+        _userPreferencesService?.persistentFiltersEnabled ?? false;
+    if (persistentFiltersEnabled) {
+      unawaited(_saveStateIfEnabled(snapshot: snapshot));
+    } else {
+      unawaited(_clearPersistedState());
+    }
     _cardService?.removeListener(_handleCommanderSelectionChanged);
     _nameController.dispose();
     _oracleController.dispose();
@@ -162,6 +274,233 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
     _priceMaxController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadPersistedStateIfEnabled() async {
+    final prefsService =
+        _userPreferencesService ?? context.read<UserPreferencesService>();
+    if (!prefsService.persistentFiltersEnabled) {
+      await _clearPersistedState();
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_persistedStateKey);
+    if (raw == null || raw.isEmpty) return;
+
+    try {
+      final data = json.decode(raw);
+      if (data is! Map<String, dynamic>) return;
+
+      setState(() {
+        _nameController.text = data['name'] as String? ?? '';
+        _oracleController.text = data['oracle'] as String? ?? '';
+        _typeController.text = data['type'] as String? ?? '';
+        _manaCostController.text = data['manaCost'] as String? ?? '';
+        _setController.text = data['set'] as String? ?? '';
+        _artistController.text = data['artist'] as String? ?? '';
+        _languageController.text = data['language'] as String? ?? '';
+        _rawQueryController.text = data['rawQuery'] as String? ?? '';
+        _flavorController.text = data['flavor'] as String? ?? '';
+        _showRawQueryField = data['showRawQueryField'] as bool? ?? false;
+        _showHybridMana = data['showHybridMana'] as bool? ?? false;
+        _exactManaCost = data['exactManaCost'] as bool? ?? false;
+
+        final colorMode = data['colorMode'] as String?;
+        _colorMode = ColorMode.values.firstWhere(
+          (value) => value.name == colorMode,
+          orElse: () => ColorMode.includes,
+        );
+
+        _selectedColors
+          ..clear()
+          ..addAll(
+            (data['selectedColors'] as List? ?? const [])
+                .whereType<String>()
+                .map(
+                  (symbol) => MTGColor.values.firstWhere(
+                    (c) => c.symbol == symbol,
+                    orElse: () => MTGColor.colorless,
+                  ),
+                ),
+          );
+
+        _selectedCommanderColors
+          ..clear()
+          ..addAll(
+            (data['selectedCommanderColors'] as List? ?? const [])
+                .whereType<String>()
+                .map(
+                  (symbol) => MTGColor.values.firstWhere(
+                    (c) => c.symbol == symbol,
+                    orElse: () => MTGColor.colorless,
+                  ),
+                ),
+          );
+
+        _lockCommanderColorToSelectedCommander =
+            data['lockCommanderColorToSelectedCommander'] as bool? ?? false;
+
+        _selectedGames
+          ..clear()
+          ..addAll(
+            (data['selectedGames'] as List? ?? const [])
+                .whereType<String>()
+                .map(
+                  (name) => SearchGame.values.firstWhere(
+                    (g) => g.name == name,
+                    orElse: () => SearchGame.paper,
+                  ),
+                ),
+          );
+
+        _selectedRarities
+          ..clear()
+          ..addAll(
+            (data['selectedRarities'] as List? ?? const [])
+                .whereType<String>()
+                .map((r) => r.toLowerCase()),
+          );
+
+        _selectedPriceCurrency = PriceCurrency.values.firstWhere(
+          (value) => value.name == (data['selectedPriceCurrency'] as String?),
+          orElse: () => PriceCurrency.usd,
+        );
+
+        _usdMin = (data['usdMin'] as num?)?.toDouble();
+        _usdMax = (data['usdMax'] as num?)?.toDouble();
+        _eurMin = (data['eurMin'] as num?)?.toDouble();
+        _eurMax = (data['eurMax'] as num?)?.toDouble();
+        _tixMin = (data['tixMin'] as num?)?.toDouble();
+        _tixMax = (data['tixMax'] as num?)?.toDouble();
+
+        _power = RangeValues(
+          (data['powerStart'] as num?)?.toDouble() ?? 0,
+          (data['powerEnd'] as num?)?.toDouble() ?? 12,
+        );
+        _toughness = RangeValues(
+          (data['toughnessStart'] as num?)?.toDouble() ?? 0,
+          (data['toughnessEnd'] as num?)?.toDouble() ?? 12,
+        );
+        _loyalty = RangeValues(
+          (data['loyaltyStart'] as num?)?.toDouble() ?? 0,
+          (data['loyaltyEnd'] as num?)?.toDouble() ?? 10,
+        );
+
+        _priceMinController.text =
+            (_selectedPriceCurrency == PriceCurrency.usd ? _usdMin : _eurMin)
+                    ?.toString() ??
+                '';
+        _priceMaxController.text =
+            (_selectedPriceCurrency == PriceCurrency.usd ? _usdMax : _eurMax)
+                    ?.toString() ??
+                '';
+      });
+    } catch (_) {
+      // Ignore invalid persisted state and continue with defaults.
+    }
+  }
+
+  Map<String, dynamic> _buildPersistedStateSnapshot() {
+    return <String, dynamic>{
+      'name': _nameController.text,
+      'oracle': _oracleController.text,
+      'type': _typeController.text,
+      'manaCost': _manaCostController.text,
+      'set': _setController.text,
+      'artist': _artistController.text,
+      'language': _languageController.text,
+      'rawQuery': _rawQueryController.text,
+      'flavor': _flavorController.text,
+      'showRawQueryField': _showRawQueryField,
+      'showHybridMana': _showHybridMana,
+      'exactManaCost': _exactManaCost,
+      'colorMode': _colorMode.name,
+      'selectedColors': _selectedColors.map((c) => c.symbol).toList(),
+      'selectedCommanderColors':
+          _selectedCommanderColors.map((c) => c.symbol).toList(),
+      'lockCommanderColorToSelectedCommander':
+          _lockCommanderColorToSelectedCommander,
+      'selectedGames': _selectedGames.map((g) => g.name).toList(),
+      'selectedRarities': _selectedRarities.toList(),
+      'selectedPriceCurrency': _selectedPriceCurrency.name,
+      'usdMin': _usdMin,
+      'usdMax': _usdMax,
+      'eurMin': _eurMin,
+      'eurMax': _eurMax,
+      'tixMin': _tixMin,
+      'tixMax': _tixMax,
+      'powerStart': _power.start,
+      'powerEnd': _power.end,
+      'toughnessStart': _toughness.start,
+      'toughnessEnd': _toughness.end,
+      'loyaltyStart': _loyalty.start,
+      'loyaltyEnd': _loyalty.end,
+    };
+  }
+
+  Future<void> _saveStateIfEnabled({Map<String, dynamic>? snapshot}) async {
+    final prefsService = _userPreferencesService;
+    if (prefsService == null) return;
+    if (!prefsService.persistentFiltersEnabled) {
+      await _clearPersistedState();
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final state = snapshot ?? _buildPersistedStateSnapshot();
+    await prefs.setString(_persistedStateKey, json.encode(state));
+  }
+
+  Future<void> _clearPersistedState() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_persistedStateKey);
+  }
+
+  Widget _buildPersistentFiltersBanner() {
+    return Consumer<UserPreferencesService>(
+      builder: (context, preferences, _) {
+        if (!preferences.persistentFiltersEnabled) {
+          return const SizedBox.shrink();
+        }
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: InkWell(
+            onTap: () {
+              Navigator.pushNamed(
+                context,
+                NavigationScreen.routeUserPreferences,
+              );
+            },
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.green.withAlpha((0.16 * 255).round()),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                    color: Colors.green.withAlpha((0.45 * 255).round())),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.check_circle_outline,
+                      size: 18, color: Colors.greenAccent),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Persistent filters are ON',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  Icon(Icons.chevron_right, size: 18),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _handleCommanderSelectionChanged() {
@@ -232,6 +571,7 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
 
   Future<void> _performSearch() async {
     FocusManager.instance.primaryFocus?.unfocus();
+    unawaited(_saveStateIfEnabled());
 
     final rawQuery = _rawQueryController.text.trim();
     final cardService = context.read<CardService>();
@@ -250,6 +590,7 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
       setState(() {
         _isLoading = false;
       });
+      unawaited(_saveStateIfEnabled());
       return;
     }
 
@@ -259,6 +600,7 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
       _resultsToShow = 20;
       _isLoading = false;
     });
+    unawaited(_saveStateIfEnabled());
 
     // Move the viewport to the results section after each search.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -279,14 +621,14 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
     final parts = <String>[];
     final cardService = context.read<CardService>();
     final effectiveCommanderColors = _lockCommanderColorToSelectedCommander
-      ? _colorsFromIdentity(cardService.selectedCommanderIdentity)
+        ? _colorsFromIdentity(cardService.selectedCommanderIdentity)
         : _selectedCommanderColors;
 
     final name = _nameController.text.trim();
     final oracle = _oracleController.text.trim();
     final type = _typeController.text.trim();
     final rawMana = _manaCostController.text.trim();
-    final setCode = _setController.text.trim();
+    final setInput = _setController.text.trim();
     final artist = _artistController.text.trim();
     final lang = _languageController.text.trim();
     final flavor = _flavorController.text.trim();
@@ -338,7 +680,6 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
       parts.add('ci<=$colors');
     }
 
-
     if (_selectedGames.isNotEmpty) {
       final games = _selectedGames.map((g) {
         switch (g) {
@@ -353,6 +694,7 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
       parts.add('games:$games');
     }
 
+    final setCode = _resolveSetCodeForQuery(setInput);
     if (setCode.isNotEmpty) {
       parts.add('set:$setCode');
     }
@@ -421,7 +763,8 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
 
   Set<MTGColor> _colorsFromIdentity(List<String> identity) {
     return identity
-        .map((symbol) => MTGColor.values.where((c) => c.symbol == symbol).firstOrNull)
+        .map((symbol) =>
+            MTGColor.values.where((c) => c.symbol == symbol).firstOrNull)
         .whereType<MTGColor>()
         .toSet();
   }
@@ -443,882 +786,854 @@ class _AdvancedSearchScreenState extends State<AdvancedSearchScreen> {
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
             children: [
-          const Text(
-            'Use Scryfall advanced query syntax (see: scryfall.com/advanced)',
-            style: TextStyle(color: Colors.white70),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Raw advanced query',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              TextButton(
-                onPressed: () {
-                  setState(() {
-                    _showRawQueryField = !_showRawQueryField;
-                  });
-                },
-                child: Text(_showRawQueryField ? 'Hide' : 'Show'),
-              ),
-            ],
-          ),
-          if (_showRawQueryField) ...[
-            const SizedBox(height: 8),
-            _buildSearchField(
-              controller: _rawQueryController,
-              label: 'Raw Advanced Query',
-              hint: 'e.g. o:"draw a card" c:WU cmc<=3',
-              maxLines: 2,
-            ),
-            const SizedBox(height: 24),
-          ],
-          if (!_showRawQueryField) ...[
-            const SizedBox(height: 24),
-          ],
-          const Divider(),
-          const SizedBox(height: 16),
-          _buildSearchField(
-            controller: _nameController,
-            label: 'Card Name',
-            hint: 'Enter card name...',
-          ),
-          const SizedBox(height: 16),
-          _buildSearchField(
-            controller: _oracleController,
-            label: 'Oracle Text',
-            hint: 'Enter card text...',
-          ),
-          const SizedBox(height: 16),
-          Autocomplete<String>(
-            optionsBuilder: (textEditingValue) {
-              final all = context.read<CardService>().typeLineSuggestions;
-              return all.where((s) => s
-                  .toLowerCase()
-                  .contains(textEditingValue.text.toLowerCase()));
-            },
-            fieldViewBuilder: (context, controller, focusNode, onSubmitted) {
-              controller.text = _typeController.text;
-              controller.selection = TextSelection.fromPosition(
-                TextPosition(offset: controller.text.length),
-              );
-              return TextField(
-                controller: controller,
-                focusNode: focusNode,
-                decoration: InputDecoration(
-                  labelText: 'Type Line',
-                  hintText: 'Enter card type...',
-                  suffixIcon: controller.text.isEmpty
-                      ? null
-                      : IconButton(
-                          icon: const Icon(Icons.clear),
-                          onPressed: () {
-                            setState(() {
-                              controller.clear();
-                              _typeController.clear();
-                            });
-                          },
-                        ),
-                ),
-                onChanged: (value) {
-                  setState(() {
-                    _typeController.text = value;
-                  });
-                },
-              );
-            },
-            onSelected: (selection) {
-              _typeController.text = selection;
-            },
-          ),
-          const SizedBox(height: 16),
-          _buildSearchField(
-            controller: _manaCostController,
-            label: 'Mana Cost',
-            hint: 'eg. {2}{G}{G}',
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Tap symbols to add mana cost',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _baseManaTokens.map((token) {
-              return _ManaSymbolInputButton(
-                token: token,
-                onPressed: () => _appendManaSymbol(token),
-              );
-            }).toList(),
-          ),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: () {
-                setState(() {
-                  _showHybridMana = !_showHybridMana;
-                });
-              },
-              icon: Icon(_showHybridMana ? Icons.expand_less : Icons.expand_more),
-              label: Text(_showHybridMana ? 'Hide hybrid mana' : 'Show hybrid mana'),
-            ),
-          ),
-          if (_showHybridMana)
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _hybridManaTokens.map((token) {
-                return _ManaSymbolInputButton(
-                  token: token,
-                  onPressed: () => _appendManaSymbol(token),
-                );
-              }).toList(),
-            ),
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Exact cost'),
-            subtitle: const Text('Match full mana cost exactly'),
-            value: _exactManaCost,
-            onChanged: (value) {
-              setState(() {
-                _exactManaCost = value;
-              });
-            },
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Color',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              DropdownButton<ColorMode>(
-                value: _colorMode,
-                items: const [
-                  DropdownMenuItem(
-                    value: ColorMode.includes,
-                    child: Text('Includes'),
-                  ),
-                  DropdownMenuItem(
-                    value: ColorMode.exact,
-                    child: Text('Exactly'),
-                  ),
-                  DropdownMenuItem(
-                    value: ColorMode.atMost,
-                    child: Text('At most'),
+              _buildPersistentFiltersBanner(),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _showRawQueryField = !_showRawQueryField;
+                      });
+                    },
+                    child: Text(
+                      _showRawQueryField ? 'Hide' : 'Use advanced query',
+                    ),
                   ),
                 ],
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() {
-                      _colorMode = value;
-                    });
-                  }
+              ),
+              if (_showRawQueryField) ...[
+                const SizedBox(height: 8),
+                _buildSearchField(
+                  controller: _rawQueryController,
+                  label: 'Raw Advanced Query',
+                  hint: 'e.g. o:"draw a card" c:WU cmc<=3',
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 24),
+              ],
+              if (!_showRawQueryField) ...[
+                const SizedBox(height: 24),
+              ],
+              const Divider(),
+              const SizedBox(height: 16),
+              _buildSearchField(
+                controller: _nameController,
+                label: 'Card Name',
+                hint: 'Enter card name...',
+              ),
+              const SizedBox(height: 16),
+              _buildSearchField(
+                controller: _oracleController,
+                label: 'Oracle Text',
+                hint: 'Enter card text...',
+              ),
+              const SizedBox(height: 16),
+              Autocomplete<String>(
+                optionsBuilder: (textEditingValue) {
+                  final all = context.read<CardService>().typeLineSuggestions;
+                  return all.where((s) => s
+                      .toLowerCase()
+                      .contains(textEditingValue.text.toLowerCase()));
+                },
+                fieldViewBuilder:
+                    (context, controller, focusNode, onSubmitted) {
+                  controller.text = _typeController.text;
+                  controller.selection = TextSelection.fromPosition(
+                    TextPosition(offset: controller.text.length),
+                  );
+                  return TextField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    decoration: InputDecoration(
+                      labelText: 'Type Line',
+                      hintText: 'Enter card type...',
+                      suffixIcon: controller.text.isEmpty
+                          ? null
+                          : IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                setState(() {
+                                  controller.clear();
+                                  _typeController.clear();
+                                });
+                              },
+                            ),
+                    ),
+                    onChanged: (value) {
+                      setState(() {
+                        _typeController.text = value;
+                      });
+                    },
+                  );
+                },
+                onSelected: (selection) {
+                  _typeController.text = selection;
                 },
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Wrap(
+              const SizedBox(height: 16),
+              _buildSearchField(
+                controller: _manaCostController,
+                label: 'Mana Cost',
+                hint: 'eg. {2}{G}{G}',
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Tap symbols to add mana cost',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _baseManaTokens.map((token) {
+                  return _ManaSymbolInputButton(
+                    token: token,
+                    onPressed: () => _appendManaSymbol(token),
+                  );
+                }).toList(),
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _showHybridMana = !_showHybridMana;
+                    });
+                  },
+                  icon: Icon(
+                      _showHybridMana ? Icons.expand_less : Icons.expand_more),
+                  label: Text(_showHybridMana
+                      ? 'Hide hybrid mana'
+                      : 'Show hybrid mana'),
+                ),
+              ),
+              if (_showHybridMana)
+                Wrap(
                   spacing: 8,
-                  children: MTGColor.values.map((color) {
-                    return FilterChip(
-                      label: ManaSymbolLabel(color: color),
-                      selected: _selectedColors.contains(color),
-                      onSelected: (selected) {
-                        setState(() {
-                          if (selected) {
-                            _selectedColors.add(color);
-                          } else {
-                            _selectedColors.remove(color);
-                          }
-                        });
-                      },
+                  runSpacing: 8,
+                  children: _hybridManaTokens.map((token) {
+                    return _ManaSymbolInputButton(
+                      token: token,
+                      onPressed: () => _appendManaSymbol(token),
                     );
                   }).toList(),
                 ),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Exact cost'),
+                subtitle: const Text('Match full mana cost exactly'),
+                value: _exactManaCost,
+                onChanged: (value) {
+                  setState(() {
+                    _exactManaCost = value;
+                  });
+                },
               ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Consumer<CardService>(
-            builder: (context, cardService, _) {
-              final selectedCommanders = cardService.selectedCommanders;
-              final lockedCommanderColors = _colorsFromIdentity(
-                cardService.selectedCommanderIdentity,
-              );
-              final displayedCommanderColors = _lockCommanderColorToSelectedCommander
-                  ? lockedCommanderColors
-                  : _selectedCommanderColors;
-
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              const SizedBox(height: 16),
+              Text(
+                'Color',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Row(
                 children: [
-                  Text(
-                    'Commander Color',
-                    style: Theme.of(context).textTheme.titleMedium,
+                  DropdownButton<ColorMode>(
+                    value: _colorMode,
+                    items: const [
+                      DropdownMenuItem(
+                        value: ColorMode.includes,
+                        child: Text('Includes'),
+                      ),
+                      DropdownMenuItem(
+                        value: ColorMode.exact,
+                        child: Text('Exactly'),
+                      ),
+                      DropdownMenuItem(
+                        value: ColorMode.atMost,
+                        child: Text('At most'),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() {
+                          _colorMode = value;
+                        });
+                      }
+                    },
                   ),
-                  const SizedBox(height: 8),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Lock to currently selected commander'),
-                    subtitle: Text(
-                      selectedCommanders.isNotEmpty
-                        ? cardService.selectedCommanderNames
-                        : 'No commander selected on the Daily page',
-                    ),
-                    value: _lockCommanderColorToSelectedCommander &&
-                      selectedCommanders.isNotEmpty,
-                    onChanged: selectedCommanders.isEmpty
-                        ? null
-                        : (selected) {
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Wrap(
+                      spacing: 8,
+                      children: MTGColor.values.map((color) {
+                        return FilterChip(
+                          label: ManaSymbolLabel(color: color),
+                          selected: _selectedColors.contains(color),
+                          onSelected: (selected) {
                             setState(() {
-                              _lockCommanderColorToSelectedCommander = selected;
                               if (selected) {
-                                _selectedCommanderColors
-                                  ..clear()
-                                  ..addAll(lockedCommanderColors);
+                                _selectedColors.add(color);
+                              } else {
+                                _selectedColors.remove(color);
                               }
                             });
                           },
+                        );
+                      }).toList(),
+                    ),
                   ),
-                  if (selectedCommanders.isNotEmpty) ...[
-                    _SelectedCommanderPreview(cards: selectedCommanders),
-                    const SizedBox(height: 12),
-                  ],
-                  Wrap(
-                    spacing: 8,
-                    children: MTGColor.values.map((color) {
-                      return FilterChip(
-                        label: ManaSymbolLabel(color: color),
-                        selected: displayedCommanderColors.contains(color),
-                        onSelected: _lockCommanderColorToSelectedCommander
+                ],
+              ),
+              const SizedBox(height: 16),
+              Consumer<CardService>(
+                builder: (context, cardService, _) {
+                  final selectedCommanders = cardService.selectedCommanders;
+                  final lockedCommanderColors = _colorsFromIdentity(
+                    cardService.selectedCommanderIdentity,
+                  );
+                  final displayedCommanderColors =
+                      _lockCommanderColorToSelectedCommander
+                          ? lockedCommanderColors
+                          : _selectedCommanderColors;
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Commander Color',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title:
+                            const Text('Lock to currently selected commander'),
+                        subtitle: Text(
+                          selectedCommanders.isNotEmpty
+                              ? cardService.selectedCommanderNames
+                              : 'No commander selected on the Daily page',
+                        ),
+                        value: _lockCommanderColorToSelectedCommander &&
+                            selectedCommanders.isNotEmpty,
+                        onChanged: selectedCommanders.isEmpty
                             ? null
                             : (selected) {
                                 setState(() {
+                                  _lockCommanderColorToSelectedCommander =
+                                      selected;
                                   if (selected) {
-                                    _selectedCommanderColors.add(color);
-                                  } else {
-                                    _selectedCommanderColors.remove(color);
+                                    _selectedCommanderColors
+                                      ..clear()
+                                      ..addAll(lockedCommanderColors);
                                   }
                                 });
                               },
-                      );
-                    }).toList(),
-                  ),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Games',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          Wrap(
-            spacing: 8,
-            children: SearchGame.values.map((game) {
-              final label = () {
-                switch (game) {
-                  case SearchGame.paper:
-                    return 'Paper';
-                  case SearchGame.arena:
-                    return 'Arena';
-                  case SearchGame.mtgo:
-                    return 'MTGO';
-                }
-              }();
-
-              return FilterChip(
-                label: Text(label),
-                selected: _selectedGames.contains(game),
-                onSelected: (selected) {
-                  setState(() {
-                    if (selected) {
-                      _selectedGames.add(game);
-                    } else {
-                      _selectedGames.remove(game);
-                    }
-                  });
+                      ),
+                      if (selectedCommanders.isNotEmpty) ...[
+                        _SelectedCommanderPreview(cards: selectedCommanders),
+                        const SizedBox(height: 12),
+                      ],
+                      Wrap(
+                        spacing: 8,
+                        children: MTGColor.values.map((color) {
+                          return FilterChip(
+                            label: ManaSymbolLabel(color: color),
+                            selected: displayedCommanderColors.contains(color),
+                            onSelected: _lockCommanderColorToSelectedCommander
+                                ? null
+                                : (selected) {
+                                    setState(() {
+                                      if (selected) {
+                                        _selectedCommanderColors.add(color);
+                                      } else {
+                                        _selectedCommanderColors.remove(color);
+                                      }
+                                    });
+                                  },
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  );
                 },
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 16),
-          Autocomplete<String>(
-            optionsBuilder: (textEditingValue) {
-              final all = context.read<CardService>().setSuggestions;
-              return all.where((s) => s
-                  .toLowerCase()
-                  .contains(textEditingValue.text.toLowerCase()));
-            },
-            fieldViewBuilder: (context, controller, focusNode, onSubmitted) {
-              controller.text = _setController.text;
-              controller.selection = TextSelection.fromPosition(
-                TextPosition(offset: controller.text.length),
-              );
-              return TextField(
-                controller: controller,
-                focusNode: focusNode,
-                decoration: InputDecoration(
-                  labelText: 'Set / Block',
-                  hintText: 'e.g. Zendikar',
-                  suffixIcon: controller.text.isEmpty
-                      ? null
-                      : IconButton(
-                          icon: const Icon(Icons.clear),
-                          onPressed: () {
-                            setState(() {
-                              controller.clear();
-                              _setController.clear();
-                            });
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Games',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              Wrap(
+                spacing: 8,
+                children: SearchGame.values.map((game) {
+                  final label = () {
+                    switch (game) {
+                      case SearchGame.paper:
+                        return 'Paper';
+                      case SearchGame.arena:
+                        return 'Arena';
+                      case SearchGame.mtgo:
+                        return 'MTGO';
+                    }
+                  }();
+
+                  return FilterChip(
+                    label: Text(label),
+                    selected: _selectedGames.contains(game),
+                    onSelected: (selected) {
+                      setState(() {
+                        if (selected) {
+                          _selectedGames.add(game);
+                        } else {
+                          _selectedGames.remove(game);
+                        }
+                      });
+                    },
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 16),
+              Autocomplete<_SetOption>(
+                optionsBuilder: (textEditingValue) {
+                  final query = textEditingValue.text.trim().toLowerCase();
+                  final setService = context.read<SetService>();
+                  final sets = setService.sets;
+
+                  if (sets.isEmpty) {
+                    return const Iterable<_SetOption>.empty();
+                  }
+
+                  final filtered = sets.where((set) {
+                    if (query.isEmpty) return true;
+                    return set.name.toLowerCase().contains(query) ||
+                        set.code.toLowerCase().contains(query);
+                  });
+
+                  return filtered
+                      .take(40)
+                      .map((set) => _SetOption(
+                            code: set.code,
+                            name: set.name,
+                            iconSvg: setService.iconSvgBySetCode(set.code),
+                          ));
+                },
+                fieldViewBuilder:
+                    (context, controller, focusNode, onSubmitted) {
+                  controller.text = _setController.text;
+                  controller.selection = TextSelection.fromPosition(
+                    TextPosition(offset: controller.text.length),
+                  );
+                  return TextField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    decoration: InputDecoration(
+                      labelText: 'Set / Block',
+                      hintText: 'e.g. Zendikar or khm',
+                      suffixIcon: controller.text.isEmpty
+                          ? null
+                          : IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                setState(() {
+                                  controller.clear();
+                                  _setController.clear();
+                                });
+                              },
+                            ),
+                    ),
+                    onChanged: (value) {
+                      setState(() {
+                        _setController.text = value;
+                      });
+                    },
+                  );
+                },
+                optionsViewBuilder: (context, onSelected, options) {
+                  final rendered = options.toList(growable: false);
+                  return Align(
+                    alignment: Alignment.topLeft,
+                    child: Material(
+                      elevation: 8,
+                      borderRadius: BorderRadius.circular(10),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(
+                          maxHeight: 280,
+                          maxWidth: 420,
+                        ),
+                        child: ListView.builder(
+                          padding: EdgeInsets.zero,
+                          itemCount: rendered.length,
+                          itemBuilder: (context, index) {
+                            final option = rendered[index];
+                            return ListTile(
+                              dense: true,
+                              leading: option.iconSvg == null
+                                  ? const Icon(Icons.style)
+                                  : SvgPicture.string(
+                                      option.iconSvg!,
+                                      width: 18,
+                                      height: 18,
+                                    ),
+                              title: Text(option.name),
+                              subtitle: Text(option.code.toUpperCase()),
+                              onTap: () => onSelected(option),
+                            );
                           },
                         ),
+                      ),
+                    ),
+                  );
+                },
+                onSelected: (selection) {
+                  _setController.text =
+                      '${selection.name} (${selection.code.toUpperCase()})';
+                },
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Rarity',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Select multiple rarities. None selected means all rarities.',
+                style: TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: const ['common', 'uncommon', 'rare', 'mythic']
+                    .map((rarity) {
+                  return rarity;
+                }).map((rarity) {
+                  return FilterChip(
+                    label: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _RarityDot(rarity: rarity),
+                        const SizedBox(width: 6),
+                        Text(_rarityLabel(rarity)),
+                      ],
+                    ),
+                    selected: _selectedRarities.contains(rarity),
+                    onSelected: (selected) {
+                      setState(() {
+                        if (selected) {
+                          _selectedRarities.add(rarity);
+                        } else {
+                          _selectedRarities.remove(rarity);
+                        }
+                      });
+                    },
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 16),
+              Autocomplete<String>(
+                optionsBuilder: (textEditingValue) {
+                  final all = context.read<CardService>().artistSuggestions;
+                  return all.where((s) => s
+                      .toLowerCase()
+                      .contains(textEditingValue.text.toLowerCase()));
+                },
+                fieldViewBuilder:
+                    (context, controller, focusNode, onSubmitted) {
+                  controller.text = _artistController.text;
+                  controller.selection = TextSelection.fromPosition(
+                    TextPosition(offset: controller.text.length),
+                  );
+                  return TextField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    decoration: InputDecoration(
+                      labelText: 'Artist',
+                      hintText: 'e.g. Christopher Moeller',
+                      suffixIcon: controller.text.isEmpty
+                          ? null
+                          : IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                setState(() {
+                                  controller.clear();
+                                  _artistController.clear();
+                                });
+                              },
+                            ),
+                    ),
+                    onChanged: (value) {
+                      setState(() {
+                        _artistController.text = value;
+                      });
+                    },
+                  );
+                },
+                onSelected: (selection) {
+                  _artistController.text = selection;
+                },
+              ),
+              const SizedBox(height: 16),
+              Autocomplete<String>(
+                optionsBuilder: (textEditingValue) {
+                  final all = context.read<CardService>().languageSuggestions;
+                  return all.where((s) => s
+                      .toLowerCase()
+                      .contains(textEditingValue.text.toLowerCase()));
+                },
+                fieldViewBuilder:
+                    (context, controller, focusNode, onSubmitted) {
+                  controller.text = _languageController.text;
+                  controller.selection = TextSelection.fromPosition(
+                    TextPosition(offset: controller.text.length),
+                  );
+                  return TextField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    decoration: InputDecoration(
+                      labelText: 'Language',
+                      hintText: 'e.g. en',
+                      suffixIcon: controller.text.isEmpty
+                          ? null
+                          : IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                setState(() {
+                                  controller.clear();
+                                  _languageController.clear();
+                                });
+                              },
+                            ),
+                    ),
+                    onChanged: (value) {
+                      setState(() {
+                        _languageController.text = value;
+                      });
+                    },
+                  );
+                },
+                onSelected: (selection) {
+                  _languageController.text = selection;
+                },
+              ),
+              const SizedBox(height: 16),
+              _buildSearchField(
+                controller: _flavorController,
+                label: 'Flavor / Lore (fulltext)',
+                hint: 'Search flavor text, rulings, etc',
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Price Filters',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  DropdownButton<PriceCurrency>(
+                    value: _selectedPriceCurrency,
+                    items: const [
+                      DropdownMenuItem(
+                        value: PriceCurrency.usd,
+                        child: Text('USD'),
+                      ),
+                      DropdownMenuItem(
+                        value: PriceCurrency.eur,
+                        child: Text('EUR'),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() {
+                          _selectedPriceCurrency = value;
+                          _priceMinController.text =
+                              (value == PriceCurrency.usd ? _usdMin : _eurMin)
+                                      ?.toString() ??
+                                  '';
+                          _priceMaxController.text =
+                              (value == PriceCurrency.usd ? _usdMax : _eurMax)
+                                      ?.toString() ??
+                                  '';
+                        });
+                      }
+                    },
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: TextField(
+                      controller: _priceMinController,
+                      decoration: InputDecoration(
+                        labelText:
+                            '${_selectedPriceCurrency.name.toUpperCase()} min',
+                        hintText: '0.00',
+                        suffixIcon: _priceMinController.text.isEmpty
+                            ? null
+                            : IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: () {
+                                  setState(() {
+                                    _priceMinController.clear();
+                                    if (_selectedPriceCurrency ==
+                                        PriceCurrency.usd) {
+                                      _usdMin = null;
+                                    } else {
+                                      _eurMin = null;
+                                    }
+                                  });
+                                },
+                              ),
+                      ),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _priceMaxController,
+                      decoration: InputDecoration(
+                        labelText:
+                            '${_selectedPriceCurrency.name.toUpperCase()} max',
+                        hintText: '0.00',
+                        suffixIcon: _priceMaxController.text.isEmpty
+                            ? null
+                            : IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: () {
+                                  setState(() {
+                                    _priceMaxController.clear();
+                                    if (_selectedPriceCurrency ==
+                                        PriceCurrency.usd) {
+                                      _usdMax = null;
+                                    } else {
+                                      _eurMax = null;
+                                    }
+                                  });
+                                },
+                              ),
+                      ),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Power / Toughness / Loyalty',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Text('Power'),
+              RangeSlider(
+                values: _power,
+                min: 0,
+                max: 12,
+                divisions: 12,
+                labels: RangeLabels(
+                  _power.start.round().toString(),
+                  _power.end.round().toString(),
                 ),
-                onChanged: (value) {
+                onChanged: (values) {
                   setState(() {
-                    _setController.text = value;
+                    _power = values;
                   });
                 },
-              );
-            },
-            onSelected: (selection) {
-              _setController.text = selection;
-            },
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Rarity',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Select multiple rarities. None selected means all rarities.',
-            style: TextStyle(color: Colors.white70),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: const ['common', 'uncommon', 'rare', 'mythic'].map((rarity) {
-              return rarity;
-            }).map((rarity) {
-              return FilterChip(
-                label: Row(
-                  mainAxisSize: MainAxisSize.min,
+              ),
+              Text('Toughness'),
+              RangeSlider(
+                values: _toughness,
+                min: 0,
+                max: 12,
+                divisions: 12,
+                labels: RangeLabels(
+                  _toughness.start.round().toString(),
+                  _toughness.end.round().toString(),
+                ),
+                onChanged: (values) {
+                  setState(() {
+                    _toughness = values;
+                  });
+                },
+              ),
+              Text('Loyalty'),
+              RangeSlider(
+                values: _loyalty,
+                min: 0,
+                max: 10,
+                divisions: 10,
+                labels: RangeLabels(
+                  _loyalty.start.round().toString(),
+                  _loyalty.end.round().toString(),
+                ),
+                onChanged: (values) {
+                  setState(() {
+                    _loyalty = values;
+                  });
+                },
+              ),
+              const SizedBox(height: 24),
+              if (_searchResults.isNotEmpty) ...[
+                SizedBox(key: _resultsSectionKey),
+                Row(
                   children: [
-                    _RarityDot(rarity: rarity),
-                    const SizedBox(width: 6),
-                    Text(_rarityLabel(rarity)),
+                    Expanded(
+                      child: Text(
+                        'Results (${_searchResults.length})',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    const Text('Art crop only'),
+                    Switch.adaptive(
+                      value: _showArtCropOnly,
+                      onChanged: (value) {
+                        setState(() {
+                          _showArtCropOnly = value;
+                        });
+                      },
+                    ),
                   ],
                 ),
-                selected: _selectedRarities.contains(rarity),
-                onSelected: (selected) {
-                  setState(() {
-                    if (selected) {
-                      _selectedRarities.add(rarity);
-                    } else {
-                      _selectedRarities.remove(rarity);
-                    }
-                  });
-                },
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 16),
-          Autocomplete<String>(
-            optionsBuilder: (textEditingValue) {
-              final all = context.read<CardService>().artistSuggestions;
-              return all.where((s) => s
-                  .toLowerCase()
-                  .contains(textEditingValue.text.toLowerCase()));
-            },
-            fieldViewBuilder: (context, controller, focusNode, onSubmitted) {
-              controller.text = _artistController.text;
-              controller.selection = TextSelection.fromPosition(
-                TextPosition(offset: controller.text.length),
-              );
-              return TextField(
-                controller: controller,
-                focusNode: focusNode,
-                decoration: InputDecoration(
-                  labelText: 'Artist',
-                  hintText: 'e.g. Christopher Moeller',
-                  suffixIcon: controller.text.isEmpty
-                      ? null
-                      : IconButton(
-                          icon: const Icon(Icons.clear),
-                          onPressed: () {
-                            setState(() {
-                              controller.clear();
-                              _artistController.clear();
-                            });
-                          },
-                        ),
-                ),
-                onChanged: (value) {
-                  setState(() {
-                    _artistController.text = value;
-                  });
-                },
-              );
-            },
-            onSelected: (selection) {
-              _artistController.text = selection;
-            },
-          ),
-          const SizedBox(height: 16),
-          Autocomplete<String>(
-            optionsBuilder: (textEditingValue) {
-              final all = context.read<CardService>().languageSuggestions;
-              return all.where((s) => s
-                  .toLowerCase()
-                  .contains(textEditingValue.text.toLowerCase()));
-            },
-            fieldViewBuilder: (context, controller, focusNode, onSubmitted) {
-              controller.text = _languageController.text;
-              controller.selection = TextSelection.fromPosition(
-                TextPosition(offset: controller.text.length),
-              );
-              return TextField(
-                controller: controller,
-                focusNode: focusNode,
-                decoration: InputDecoration(
-                  labelText: 'Language',
-                  hintText: 'e.g. en',
-                  suffixIcon: controller.text.isEmpty
-                      ? null
-                      : IconButton(
-                          icon: const Icon(Icons.clear),
-                          onPressed: () {
-                            setState(() {
-                              controller.clear();
-                              _languageController.clear();
-                            });
-                          },
-                        ),
-                ),
-                onChanged: (value) {
-                  setState(() {
-                    _languageController.text = value;
-                  });
-                },
-              );
-            },
-            onSelected: (selection) {
-              _languageController.text = selection;
-            },
-          ),
-          const SizedBox(height: 16),
-          _buildSearchField(
-            controller: _flavorController,
-            label: 'Flavor / Lore (fulltext)',
-            hint: 'Search flavor text, rulings, etc',
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Price Filters',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              DropdownButton<PriceCurrency>(
-                value: _selectedPriceCurrency,
-                items: const [
-                  DropdownMenuItem(
-                    value: PriceCurrency.usd,
-                    child: Text('USD'),
-                  ),
-                  DropdownMenuItem(
-                    value: PriceCurrency.eur,
-                    child: Text('EUR'),
-                  ),
-                ],
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() {
-                      _selectedPriceCurrency = value;
-                      _priceMinController.text = (value == PriceCurrency.usd
-                              ? _usdMin
-                              : _eurMin)
-                          ?.toString() ?? '';
-                      _priceMaxController.text = (value == PriceCurrency.usd
-                              ? _usdMax
-                              : _eurMax)
-                          ?.toString() ?? '';
-                    });
-                  }
-                },
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: TextField(
-                  controller: _priceMinController,
-                  decoration: InputDecoration(
-                    labelText:
-                        '${_selectedPriceCurrency.name.toUpperCase()} min',
-                    hintText: '0.00',
-                    suffixIcon: _priceMinController.text.isEmpty
-                        ? null
-                        : IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              setState(() {
-                                _priceMinController.clear();
-                                if (_selectedPriceCurrency ==
-                                    PriceCurrency.usd) {
-                                  _usdMin = null;
-                                } else {
-                                  _eurMin = null;
-                                }
-                              });
-                            },
-                          ),
-                  ),
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  onChanged: (_) => setState(() {}),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextField(
-                  controller: _priceMaxController,
-                  decoration: InputDecoration(
-                    labelText:
-                        '${_selectedPriceCurrency.name.toUpperCase()} max',
-                    hintText: '0.00',
-                    suffixIcon: _priceMaxController.text.isEmpty
-                        ? null
-                        : IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              setState(() {
-                                _priceMaxController.clear();
-                                if (_selectedPriceCurrency ==
-                                    PriceCurrency.usd) {
-                                  _usdMax = null;
-                                } else {
-                                  _eurMax = null;
-                                }
-                              });
-                            },
-                          ),
-                  ),
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  onChanged: (_) => setState(() {}),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          Text(
-            'Power / Toughness / Loyalty',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          Text('Power'),
-          RangeSlider(
-            values: _power,
-            min: 0,
-            max: 12,
-            divisions: 12,
-            labels: RangeLabels(
-              _power.start.round().toString(),
-              _power.end.round().toString(),
-            ),
-            onChanged: (values) {
-              setState(() {
-                _power = values;
-              });
-            },
-          ),
-          Text('Toughness'),
-          RangeSlider(
-            values: _toughness,
-            min: 0,
-            max: 12,
-            divisions: 12,
-            labels: RangeLabels(
-              _toughness.start.round().toString(),
-              _toughness.end.round().toString(),
-            ),
-            onChanged: (values) {
-              setState(() {
-                _toughness = values;
-              });
-            },
-          ),
-          Text('Loyalty'),
-          RangeSlider(
-            values: _loyalty,
-            min: 0,
-            max: 10,
-            divisions: 10,
-            labels: RangeLabels(
-              _loyalty.start.round().toString(),
-              _loyalty.end.round().toString(),
-            ),
-            onChanged: (values) {
-              setState(() {
-                _loyalty = values;
-              });
-            },
-          ),
-          const SizedBox(height: 24),
-          if (_searchResults.isNotEmpty) ...[
-            SizedBox(key: _resultsSectionKey),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Results (${_searchResults.length})',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                const Text('Art crop only'),
-                Switch.adaptive(
-                  value: _showArtCropOnly,
-                  onChanged: (value) {
-                    setState(() {
-                      _showArtCropOnly = value;
-                    });
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            if (_showArtCropOnly)
-              ListView.separated(
-                physics: const NeverScrollableScrollPhysics(),
-                shrinkWrap: true,
-                itemCount: math.min(_searchResults.length, _resultsToShow),
-                separatorBuilder: (_, __) => const SizedBox(height: 12),
-                itemBuilder: (context, index) {
-                  final card = _searchResults[index];
-                  final artImage = card.imageUris?.artCrop ?? card.imageUris?.normal;
-                  return Card(
-                    clipBehavior: Clip.antiAlias,
-                    child: Stack(
-                      children: [
-                        InkWell(
-                          onTap: () {
-                            if (card.imageUris?.normal != null) {
-                              Navigator.of(context).push(
-                                PageRouteBuilder(
-                                  opaque: false,
-                                  pageBuilder: (context, _, __) => CardZoomView(
-                                    cards: _searchResults,
-                                    initialIndex: index,
-                                  ),
-                                  transitionsBuilder: (context, animation, _, child) {
-                                    return FadeTransition(
-                                      opacity: animation,
-                                      child: child,
-                                    );
-                                  },
-                                ),
-                              );
-                            }
-                          },
-                          child: AspectRatio(
-                            aspectRatio: 1,
-                            child: artImage != null
-                                ? Image.network(
-                                    artImage,
-                                    fit: BoxFit.cover,
-                                  )
-                                : const Center(
-                                    child: Icon(
-                                      Icons.broken_image,
-                                      size: 48,
-                                      color: Color(0xFF2A2A2A),
+                const SizedBox(height: 12),
+                if (_showArtCropOnly)
+                  ListView.separated(
+                    physics: const NeverScrollableScrollPhysics(),
+                    shrinkWrap: true,
+                    itemCount: math.min(_searchResults.length, _resultsToShow),
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final card = _searchResults[index];
+                      final artImage = _displayArtImage(card);
+                      return Card(
+                        clipBehavior: Clip.antiAlias,
+                        child: Stack(
+                          children: [
+                            InkWell(
+                              onTap: () {
+                                if (_displayNormalImage(card) != null) {
+                                  Navigator.of(context).push(
+                                    PageRouteBuilder(
+                                      opaque: false,
+                                      pageBuilder: (context, _, __) =>
+                                          CardZoomView(
+                                        cards: _searchResults,
+                                        initialIndex: index,
+                                      ),
+                                      transitionsBuilder:
+                                          (context, animation, _, child) {
+                                        return FadeTransition(
+                                          opacity: animation,
+                                          child: child,
+                                        );
+                                      },
                                     ),
-                                  ),
-                          ),
-                        ),
-                        if (card.legalities['commander'] == 'banned')
-                          Positioned(
-                            top: 0,
-                            left: 0,
-                            child: Container(
-                              width: 30,
-                              height: 22,
-                              decoration: const BoxDecoration(
-                                color: Colors.red,
-                                borderRadius: BorderRadius.only(
-                                  topLeft: Radius.circular(2),
-                                  bottomRight: Radius.circular(8),
-                                ),
-                              ),
-                              child: const Center(
-                                child: Text(
-                                  'BAN',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 10,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          )
-                        else if (card.gameChanger)
-                          Positioned(
-                            top: 0,
-                            left: 0,
-                            child: Container(
-                              width: 22,
-                              height: 22,
-                              decoration: const BoxDecoration(
-                                color: AppColors.gameChangerOrange,
-                                borderRadius: BorderRadius.only(
-                                  topLeft: Radius.circular(2),
-                                  bottomRight: Radius.circular(8),
-                                ),
-                              ),
-                              child: const Center(
-                                child: Text(
-                                  'GC',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 10,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  );
-                },
-              )
-            else
-              GridView.builder(
-                physics: const NeverScrollableScrollPhysics(),
-                shrinkWrap: true,
-                padding: const EdgeInsets.all(0),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  childAspectRatio: 0.715,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
-                ),
-                itemCount: math.min(_searchResults.length, _resultsToShow),
-                itemBuilder: (context, index) {
-                  final card = _searchResults[index];
-                  return Card(
-                    clipBehavior: Clip.antiAlias,
-                    child: Stack(
-                      children: [
-                        InkWell(
-                          onTap: () {
-                            if (card.imageUris?.normal != null) {
-                              Navigator.of(context).push(
-                                PageRouteBuilder(
-                                  opaque: false,
-                                  pageBuilder: (context, _, __) => CardZoomView(
-                                    cards: _searchResults,
-                                    initialIndex: index,
-                                  ),
-                                  transitionsBuilder: (context, animation, _, child) {
-                                    return FadeTransition(
-                                      opacity: animation,
-                                      child: child,
-                                    );
-                                  },
-                                ),
-                              );
-                            }
-                          },
-                          child: card.imageUris?.normal != null
-                              ? Image.network(
-                                  card.imageUris!.normal!,
+                                  );
+                                }
+                              },
+                              child: AspectRatio(
+                                aspectRatio: 1,
+                                child: FlipAnimatedImage(
+                                  imageUrl: artImage,
+                                  isFlipped: _isFlipped(card),
                                   fit: BoxFit.cover,
-                                )
-                              : const Center(
-                                  child: Icon(
-                                    Icons.broken_image,
-                                    size: 48,
-                                    color: Color(0xFF2A2A2A),
+                                  placeholder: Image.asset(
+                                    'assets/images/Magic_card_back.png',
+                                    fit: BoxFit.cover,
                                   ),
                                 ),
+                              ),
+                            ),
+                            CardBadgesOverlay(
+                              hasDoubleFacedImages: card.hasDoubleFacedImages,
+                              isBanned:
+                                  card.legalities['commander'] == 'banned',
+                              isGameChanger: card.gameChanger,
+                              density: CardBadgeDensity.large,
+                              onDoubleFacedTap: () => _toggleFlipped(card),
+                              isDoubleFacedFlipped: _isFlipped(card),
+                            ),
+                          ],
                         ),
-                        if (card.legalities['commander'] == 'banned')
-                          Positioned(
-                            top: 0,
-                            left: 0,
-                            child: Container(
-                              width: 26,
-                              height: 20,
-                              decoration: const BoxDecoration(
-                                color: Colors.red,
-                                borderRadius: BorderRadius.only(
-                                  topLeft: Radius.circular(2),
-                                  bottomRight: Radius.circular(8),
-                                ),
-                              ),
-                              child: const Center(
-                                child: Text(
-                                  'BAN',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 9,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          )
-                        else if (card.gameChanger)
-                          Positioned(
-                            top: 0,
-                            left: 0,
-                            child: Container(
-                              width: 20,
-                              height: 20,
-                              decoration: const BoxDecoration(
-                                color: AppColors.gameChangerOrange,
-                                borderRadius: BorderRadius.only(
-                                  topLeft: Radius.circular(2),
-                                  bottomRight: Radius.circular(8),
-                                ),
-                              ),
-                              child: const Center(
-                                child: Text(
-                                  'GC',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 10,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
+                      );
+                    },
+                  )
+                else
+                  GridView.builder(
+                    physics: const NeverScrollableScrollPhysics(),
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.all(0),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      childAspectRatio: 0.715,
+                      crossAxisSpacing: 16,
+                      mainAxisSpacing: 16,
                     ),
-                  );
-                },
-              ),
-            if (_resultsToShow < _searchResults.length)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                child: Center(
-                  child: CircularProgressIndicator(),
-                ),
-              ),
-          ]
-        ],
+                    itemCount: math.min(_searchResults.length, _resultsToShow),
+                    itemBuilder: (context, index) {
+                      final card = _searchResults[index];
+                      final imageUrl = _displayNormalImage(card);
+                      return Card(
+                        clipBehavior: Clip.antiAlias,
+                        child: Stack(
+                          children: [
+                            InkWell(
+                              onTap: () {
+                                if (imageUrl != null) {
+                                  Navigator.of(context).push(
+                                    PageRouteBuilder(
+                                      opaque: false,
+                                      pageBuilder: (context, _, __) =>
+                                          CardZoomView(
+                                        cards: _searchResults,
+                                        initialIndex: index,
+                                      ),
+                                      transitionsBuilder:
+                                          (context, animation, _, child) {
+                                        return FadeTransition(
+                                          opacity: animation,
+                                          child: child,
+                                        );
+                                      },
+                                    ),
+                                  );
+                                }
+                              },
+                              child: FlipAnimatedImage(
+                                imageUrl: imageUrl,
+                                isFlipped: _isFlipped(card),
+                                fit: BoxFit.cover,
+                                placeholder: Image.asset(
+                                  'assets/images/Magic_card_back.png',
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                            ),
+                            CardBadgesOverlay(
+                              hasDoubleFacedImages: card.hasDoubleFacedImages,
+                              isBanned:
+                                  card.legalities['commander'] == 'banned',
+                              isGameChanger: card.gameChanger,
+                              onDoubleFacedTap: () => _toggleFlipped(card),
+                              isDoubleFacedFlipped: _isFlipped(card),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                if (_resultsToShow < _searchResults.length)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+              ]
+            ],
           ),
         ),
       ),
@@ -1405,7 +1720,9 @@ class _SelectedCommanderPreview extends StatelessWidget {
               card: cards[i],
               label: i == 0
                   ? 'Commander'
-                  : (cards[i].isBackgroundCommanderCard ? 'Background' : 'Partner'),
+                  : (cards[i].isBackgroundCommanderCard
+                      ? 'Background'
+                      : 'Partner'),
             ),
             if (i < cards.length - 1) const SizedBox(height: 10),
           ],

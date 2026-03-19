@@ -16,8 +16,14 @@ class MTGCard {
   final String? rarity;
   final String? setCode;
   final String? setName;
+  final String? collectorNumber;
+  final String? illustrationId;
+  final DateTime? releasedAt;
   final String? lang;
+  final List<String>? finishes;
   final List<String>? games;
+  final String? tcgplayerUrl;
+  final String? cardmarketUrl;
   final double? usd;
   final double? eur;
   final double? tix;
@@ -44,8 +50,14 @@ class MTGCard {
     this.rarity,
     this.setCode,
     this.setName,
+    this.collectorNumber,
+    this.illustrationId,
+    this.releasedAt,
     this.lang,
+    this.finishes,
     this.games,
+    this.tcgplayerUrl,
+    this.cardmarketUrl,
     this.usd,
     this.eur,
     this.tix,
@@ -76,8 +88,14 @@ class MTGCard {
       rarity: json['rarity']?.toLowerCase(),
       setCode: json['set'],
       setName: json['set_name'],
+      collectorNumber: _parseString(json['collector_number']),
+      illustrationId: _parseString(json['illustration_id']),
+      releasedAt: _parseDate(json['released_at']),
       lang: json['lang'],
+      finishes: (json['finishes'] as List?)?.cast<String>(),
       games: (json['games'] as List?)?.cast<String>(),
+      tcgplayerUrl: json['purchase_uris']?['tcgplayer'],
+      cardmarketUrl: json['purchase_uris']?['cardmarket'],
       usd: _parseDouble(json['prices']?['usd']),
       eur: _parseDouble(json['prices']?['eur']),
       tix: _parseDouble(json['prices']?['tix']),
@@ -112,8 +130,16 @@ class MTGCard {
       'rarity': rarity,
       'set': setCode,
       'set_name': setName,
+      'collector_number': collectorNumber,
+      'illustration_id': illustrationId,
+      'released_at': releasedAt?.toIso8601String().split('T').first,
       'lang': lang,
+      'finishes': finishes,
       'games': games,
+      'purchase_uris': {
+        'tcgplayer': tcgplayerUrl,
+        'cardmarket': cardmarketUrl,
+      },
       'prices': {
         'usd': usd,
         'eur': eur,
@@ -140,6 +166,38 @@ class MTGCard {
         firstFace?.imageUris?.normal ??
         firstFace?.imageUris?.large ??
         firstFace?.imageUris?.small;
+  }
+
+  String? get backFaceImageUrl {
+    final faces = cardFaces;
+    if (faces == null || faces.length < 2) return null;
+
+    final secondFace = faces[1];
+    return secondFace.imageUris?.normal ??
+        secondFace.imageUris?.large ??
+        secondFace.imageUris?.small;
+  }
+
+  String? get mainFaceArtCropUrl {
+    final firstFace =
+        (cardFaces != null && cardFaces!.isNotEmpty) ? cardFaces!.first : null;
+
+    return imageUris?.artCrop ??
+        firstFace?.imageUris?.artCrop ??
+        firstFace?.imageUris?.normal ??
+        firstFace?.imageUris?.large ??
+        firstFace?.imageUris?.small;
+  }
+
+  String? get backFaceArtCropUrl {
+    final faces = cardFaces;
+    if (faces == null || faces.length < 2) return null;
+
+    final secondFace = faces[1];
+    return secondFace.imageUris?.artCrop ??
+        secondFace.imageUris?.normal ??
+        secondFace.imageUris?.large ??
+        secondFace.imageUris?.small;
   }
 
   bool get hasDoubleFacedImages {
@@ -225,8 +283,7 @@ class MTGCard {
         type.contains('legendary') && type.contains('planeswalker');
     final isLegendaryBackground =
         type.contains('legendary enchantment') && type.contains('background');
-    final isLegendaryVehicleOrSpacecraft =
-        type.contains('legendary') &&
+    final isLegendaryVehicleOrSpacecraft = type.contains('legendary') &&
         (type.contains('vehicle') || type.contains('spacecraft'));
     final isPermanent = type.contains('artifact') ||
         type.contains('battle') ||
@@ -243,12 +300,14 @@ class MTGCard {
 
     return isLegendaryCreature ||
         (isPermanent && hasExplicitCommanderText) ||
-        ((isLegendaryCreature || isLegendaryPlaneswalker) && hasPartnerLikeText) ||
+        ((isLegendaryCreature || isLegendaryPlaneswalker) &&
+            hasPartnerLikeText) ||
         isLegendaryBackground ||
         (isLegendaryVehicleOrSpacecraft && _hasAnyPowerToughness);
   }
 
-        bool get canBePrimaryCommander => canBeCommander && !isBackgroundCommanderCard;
+  bool get canBePrimaryCommander =>
+      canBeCommander && !isBackgroundCommanderCard;
 
   bool get isBackgroundCommanderCard =>
       normalizedCombinedTypeLine.contains('legendary enchantment') &&
@@ -269,7 +328,7 @@ class MTGCard {
   bool get hasGenericPartner =>
       normalizedCombinedOracleText.contains('partner') && !hasPartnerWith;
 
-    bool get isDoctor => normalizedCombinedTypeLine.contains('doctor');
+  bool get isDoctor => normalizedCombinedTypeLine.contains('doctor');
 
   bool get supportsAdditionalCommanderChoice =>
       hasChooseABackground ||
@@ -298,12 +357,14 @@ class MTGCard {
     if (isBackgroundCommanderCard && other.hasChooseABackground) return true;
 
     final partnerName = partnerWithName;
-    if (partnerName != null && other.name.toLowerCase() == partnerName.toLowerCase()) {
+    if (partnerName != null &&
+        other.name.toLowerCase() == partnerName.toLowerCase()) {
       return true;
     }
 
     final otherPartnerName = other.partnerWithName;
-    if (otherPartnerName != null && name.toLowerCase() == otherPartnerName.toLowerCase()) {
+    if (otherPartnerName != null &&
+        name.toLowerCase() == otherPartnerName.toLowerCase()) {
       return true;
     }
 
@@ -369,6 +430,12 @@ class MTGCard {
     if (value is String) return value;
     return value.toString();
   }
+}
+
+DateTime? _parseDate(dynamic value) {
+  final text = MTGCard._parseString(value);
+  if (text == null || text.isEmpty) return null;
+  return DateTime.tryParse(text);
 }
 
 class CardFace {

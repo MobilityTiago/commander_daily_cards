@@ -7,6 +7,9 @@ import '../../models/cards/mtg_card.dart';
 import '../../services/card_service.dart';
 import '../../styles/colors.dart';
 import '../../widgets/app_bar.dart';
+import '../../widgets/card_badges_overlay.dart';
+import '../../widgets/collapsible_filter_section.dart';
+import '../../widgets/flip_animated_image.dart';
 import '../../widgets/card_zoom_view.dart';
 import '../../widgets/mana_symbol_label.dart';
 
@@ -355,42 +358,141 @@ class _CardGridTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return _BracketsGridContent(
+      selectedColors: selectedColors,
+      onColorToggled: onColorToggled,
+      getCards: getCards,
+      showConspiracyToggle: showConspiracyToggle,
+      hideConspiracyCards: hideConspiracyCards,
+      onHideConspiracyChanged: onHideConspiracyChanged,
+      compareByColorThenName: _compareByColorThenName,
+    );
+  }
+}
+
+class _BracketsGridContent extends StatefulWidget {
+  final Set<MTGColor> selectedColors;
+  final void Function(MTGColor color, bool selected) onColorToggled;
+  final List<MTGCard> Function(CardService) getCards;
+  final bool showConspiracyToggle;
+  final bool hideConspiracyCards;
+  final ValueChanged<bool>? onHideConspiracyChanged;
+  final int Function(MTGCard a, MTGCard b) compareByColorThenName;
+
+  const _BracketsGridContent({
+    required this.selectedColors,
+    required this.onColorToggled,
+    required this.getCards,
+    required this.showConspiracyToggle,
+    required this.hideConspiracyCards,
+    required this.onHideConspiracyChanged,
+    required this.compareByColorThenName,
+  });
+
+  @override
+  State<_BracketsGridContent> createState() => _BracketsGridContentState();
+}
+
+class _BracketsGridContentState extends State<_BracketsGridContent> {
+  final Set<String> _flippedCardIds = <String>{};
+  double _chipFiltersVisibility = 1.0;
+
+  static const double _collapseDistance = 180.0;
+
+  bool _isFlipped(MTGCard card) => _flippedCardIds.contains(card.id);
+
+  void _toggleFlipped(MTGCard card) {
+    if (!card.hasDoubleFacedImages) return;
+    setState(() {
+      if (!_flippedCardIds.add(card.id)) {
+        _flippedCardIds.remove(card.id);
+      }
+    });
+  }
+
+  String? _displayImageUrl(MTGCard card) {
+    if (!card.hasDoubleFacedImages) {
+      return card.mainFaceImageUrl;
+    }
+
+    if (_isFlipped(card)) {
+      return card.backFaceImageUrl ?? card.mainFaceImageUrl;
+    }
+
+    return card.mainFaceImageUrl ?? card.backFaceImageUrl;
+  }
+
+  void _handleGridScroll(ScrollUpdateNotification notification) {
+    final pixels = notification.metrics.pixels;
+    if (pixels <= 0) {
+      if (_chipFiltersVisibility != 1.0) {
+        setState(() {
+          _chipFiltersVisibility = 1.0;
+        });
+      }
+      return;
+    }
+
+    final delta = notification.scrollDelta ?? 0;
+    if (delta == 0) return;
+
+    final next =
+        (_chipFiltersVisibility - (delta / _collapseDistance)).clamp(0.0, 1.0);
+    if ((next - _chipFiltersVisibility).abs() < 0.001) return;
+
+    setState(() {
+      _chipFiltersVisibility = next;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Consumer<CardService>(
       builder: (context, cardService, _) {
         if (cardService.isLoading) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        final cards = [...getCards(cardService)]..sort(_compareByColorThenName);
+        final cards = [...widget.getCards(cardService)]
+          ..sort(widget.compareByColorThenName);
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Commander color identity filter ──────────────────────────
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 4,
-                children: MTGColor.values.map((color) {
-                  return FilterChip(
-                    label: ManaSymbolLabel(color: color),
-                    selected: selectedColors.contains(color),
-                    onSelected: (s) => onColorToggled(color, s),
-                  );
-                }).toList(),
+            CollapsibleFilterSection(
+              visible: _chipFiltersVisibility > 0.001,
+              visibility: _chipFiltersVisibility,
+              child: Column(
+                children: [
+                  // ── Commander color identity filter ──────────────────────
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: MTGColor.values.map((color) {
+                        return FilterChip(
+                          label: ManaSymbolLabel(color: color),
+                          showCheckmark: false,
+                          selected: widget.selectedColors.contains(color),
+                          onSelected: (s) => widget.onColorToggled(color, s),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  if (widget.showConspiracyToggle)
+                    SwitchListTile.adaptive(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                      title: const Text('Hide Conspiracy Cards'),
+                      subtitle:
+                          const Text('Exclude Conspiracy cards from banned list'),
+                      value: widget.hideConspiracyCards,
+                      onChanged: widget.onHideConspiracyChanged,
+                    ),
+                  const Divider(height: 1),
+                ],
               ),
             ),
-            if (showConspiracyToggle)
-              SwitchListTile.adaptive(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-                title: const Text('Hide Conspiracy Cards'),
-                subtitle:
-                    const Text('Exclude Conspiracy cards from banned list'),
-                value: hideConspiracyCards,
-                onChanged: onHideConspiracyChanged,
-              ),
-            const Divider(height: 1),
 
             // ── Card grid ────────────────────────────────────────────────
             Expanded(
@@ -401,136 +503,72 @@ class _CardGridTab extends StatelessWidget {
                         style: TextStyle(color: AppColors.darkGrey),
                       ),
                     )
-                  : GridView.builder(
-                      padding: const EdgeInsets.all(16),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        childAspectRatio: 0.715,
-                        crossAxisSpacing: 16,
-                        mainAxisSpacing: 16,
-                      ),
-                      itemCount: cards.length,
-                      itemBuilder: (context, index) {
-                        final card = cards[index];
-                        final imageUrl = card.mainFaceImageUrl;
-                        return Card(
-                          clipBehavior: Clip.antiAlias,
-                          child: Stack(
-                            children: [
-                              InkWell(
-                                onTap: () {
-                                  if (imageUrl != null) {
-                                    Navigator.of(context).push(
-                                      PageRouteBuilder(
-                                        opaque: false,
-                                        pageBuilder: (ctx, _, __) =>
-                                            CardZoomView(
-                                          cards: cards,
-                                          initialIndex: index,
-                                        ),
-                                        transitionsBuilder:
-                                            (ctx, animation, _, child) =>
-                                                FadeTransition(
-                                          opacity: animation,
-                                          child: child,
-                                        ),
-                                      ),
-                                    );
-                                  }
-                                },
-                                child: imageUrl != null
-                                    ? Image.network(
-                                        imageUrl,
-                                        fit: BoxFit.cover,
-                                      )
-                                    : const Center(
-                                        child: Icon(
-                                          Icons.broken_image,
-                                          size: 48,
-                                          color: AppColors.darkGrey,
-                                        ),
-                                      ),
-                              ),
-                              if (card.hasDoubleFacedImages)
-                                Align(
-                                  alignment: Alignment.center,
-                                  child: Container(
-                                    width: 56,
-                                    height: 56,
-                                    decoration: BoxDecoration(
-                                      color: Colors.purple
-                                          .withAlpha((0.85 * 255).round()),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Center(
-                                      child: Text(
-                                        '↻',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 18,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              if (card.legalities['commander'] == 'banned')
-                                Positioned(
-                                  top: 0,
-                                  left: 0,
-                                  child: Container(
-                                    width: 26,
-                                    height: 20,
-                                    decoration: const BoxDecoration(
-                                      color: Colors.red,
-                                      borderRadius: BorderRadius.only(
-                                        topLeft: Radius.circular(2),
-                                        bottomRight: Radius.circular(8),
-                                      ),
-                                    ),
-                                    child: const Center(
-                                      child: Text(
-                                        'BAN',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 9,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                )
-                              else if (card.gameChanger)
-                                Positioned(
-                                  top: 0,
-                                  left: 0,
-                                  child: Container(
-                                    width: 20,
-                                    height: 20,
-                                    decoration: const BoxDecoration(
-                                      color: AppColors.gameChangerOrange,
-                                      borderRadius: BorderRadius.only(
-                                        topLeft: Radius.circular(2),
-                                        bottomRight: Radius.circular(8),
-                                      ),
-                                    ),
-                                    child: const Center(
-                                      child: Text(
-                                        'GC',
-                                        style: TextStyle(
-                                          color: AppColors.white,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 10,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        );
+                  : NotificationListener<ScrollUpdateNotification>(
+                      onNotification: (notification) {
+                        _handleGridScroll(notification);
+                        return false;
                       },
+                      child: GridView.builder(
+                        padding: const EdgeInsets.all(16),
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          childAspectRatio: 0.715,
+                          crossAxisSpacing: 16,
+                          mainAxisSpacing: 16,
+                        ),
+                        itemCount: cards.length,
+                        itemBuilder: (context, index) {
+                          final card = cards[index];
+                          final imageUrl = _displayImageUrl(card);
+                          return Card(
+                            clipBehavior: Clip.antiAlias,
+                            child: Stack(
+                              children: [
+                                InkWell(
+                                  onTap: () {
+                                    if (imageUrl != null) {
+                                      Navigator.of(context).push(
+                                        PageRouteBuilder(
+                                          opaque: false,
+                                          pageBuilder: (ctx, _, __) =>
+                                              CardZoomView(
+                                            cards: cards,
+                                            initialIndex: index,
+                                          ),
+                                          transitionsBuilder:
+                                              (ctx, animation, _, child) =>
+                                                  FadeTransition(
+                                            opacity: animation,
+                                            child: child,
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  },
+                                  child: FlipAnimatedImage(
+                                    imageUrl: imageUrl,
+                                    isFlipped: _isFlipped(card),
+                                    fit: BoxFit.cover,
+                                    placeholder: Image.asset(
+                                      'assets/images/Magic_card_back.png',
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                ),
+                                CardBadgesOverlay(
+                                  hasDoubleFacedImages: card.hasDoubleFacedImages,
+                                  isBanned:
+                                      card.legalities['commander'] == 'banned',
+                                  isGameChanger: card.gameChanger,
+                                  onDoubleFacedTap: () => _toggleFlipped(card),
+                                  isDoubleFacedFlipped: _isFlipped(card),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
                     ),
             ),
           ],

@@ -18,6 +18,8 @@ class NavigationScreen extends StatefulWidget {
   static const String routeBrackets = '/brackets';
   static const String routeSites = '/sites';
   static const String routeMore = '/more';
+  static const String routeCardPick = '/card-pick';
+  static const String routeUserPreferences = '/user-preferences';
   static const String routeSupport = '/support';
   static const String routeAcknowledgements = '/acknowledgements';
 

@@ -1,11 +1,16 @@
 import 'package:commander_deck/screens/acknowledgements/acknowledgements_screen.dart';
+import 'package:commander_deck/screens/card_pick/card_pick_screen.dart';
 import 'package:commander_deck/screens/navigation/navigation_screen.dart';
+import 'package:commander_deck/screens/preferences/user_preferences_screen.dart';
 import 'package:commander_deck/screens/support/support_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'services/card_service.dart';
+import 'services/set_service.dart';
 import 'services/symbol_service.dart';
+import 'services/user_preferences_service.dart';
 import 'models/filters/filter_settings.dart';
+import 'styles/colors.dart';
 
 void main() {
   runApp(const CommanderDeckApp());
@@ -19,12 +24,17 @@ class CommanderDeckApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => CardService()),
+        ChangeNotifierProvider(create: (_) => SetService()),
         ChangeNotifierProvider(create: (_) => SymbolService()..loadSymbols()),
+        ChangeNotifierProvider(create: (_) => UserPreferencesService()),
         ChangeNotifierProvider(create: (_) => SpellFilterSettings()),
         ChangeNotifierProvider(create: (_) => LandFilterSettings()),
       ],
       child: MaterialApp(
         title: 'Command',
+        theme: AppTheme.theme(),
+        darkTheme: AppTheme.theme(),
+        themeMode: ThemeMode.dark,
         home: const NavigationScreen(initialRoute: NavigationScreen.routeDaily),
         onGenerateRoute: (settings) {
           switch (settings.name) {
@@ -46,6 +56,14 @@ class CommanderDeckApp extends StatelessWidget {
             case NavigationScreen.routeAcknowledgements:
               return MaterialPageRoute(
                 builder: (context) => const AcknowledgementsScreen(),
+              );
+            case NavigationScreen.routeCardPick:
+              return MaterialPageRoute(
+                builder: (context) => const CardPickScreen(),
+              );
+            case NavigationScreen.routeUserPreferences:
+              return MaterialPageRoute(
+                builder: (context) => const UserPreferencesScreen(),
               );
             default:
               return MaterialPageRoute(

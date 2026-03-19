@@ -19,6 +19,10 @@ dependencies:
   image_gallery_saver: ^2.0.3
   flutter_svg: ^2.2.4
   webview_flutter: ^4.10.0
+  camera: ^0.11.1
+  google_mlkit_text_recognition: ^0.15.0
+  permission_handler: ^11.3.1
+  image: ^4.8.0
 
 dev_dependencies:
   flutter_launcher_icons: ^0.14.4

@@ -5,8 +5,10 @@ import 'package:intl/intl.dart';
 import '../../models/cards/mtg_card.dart';
 import '../../services/symbol_service.dart';
 import '../../services/card_service.dart';
+import '../../services/set_service.dart';
 import '../../models/filters/filter_settings.dart';
 import '../../styles/colors.dart';
+import '../../widgets/card_badges_overlay.dart';
 import '../../widgets/card_suggestion_section.dart';
 import '../../widgets/card_zoom_view.dart';
 import 'filter_screen.dart';
@@ -30,9 +32,11 @@ class _HomeScreenState extends State<HomeScreen> {
     _suggestionPageController = PageController();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final cardService = context.read<CardService>();
+      final setService = context.read<SetService>();
       final nonLandFilters = context.read<SpellFilterSettings>();
       final landFilters = context.read<LandFilterSettings>();
       cardService.loadInitialData(nonLandFilters, landFilters);
+      setService.loadSets();
     });
   }
 
@@ -640,6 +644,7 @@ class _CommanderSearchDialogState extends State<_CommanderSearchDialog> {
   final _controller = TextEditingController();
   List<MTGCard> _results = [];
   late List<MTGCard> _selectedCards;
+  final Set<String> _flippedCardIds = <String>{};
 
   @override
   void initState() {
@@ -658,6 +663,35 @@ class _CommanderSearchDialogState extends State<_CommanderSearchDialog> {
 
   void _onQueryChanged() {
     setState(_rebuildResults);
+  }
+
+  bool _isFlipped(MTGCard card) => _flippedCardIds.contains(card.id);
+
+  void _toggleFlipped(MTGCard card) {
+    if (!card.hasDoubleFacedImages) return;
+    setState(() {
+      if (!_flippedCardIds.add(card.id)) {
+        _flippedCardIds.remove(card.id);
+      }
+    });
+  }
+
+  String? _displayArtImage(MTGCard card) {
+    if (!card.hasDoubleFacedImages) {
+      return card.mainFaceArtCropUrl ?? card.mainFaceImageUrl;
+    }
+
+    if (_isFlipped(card)) {
+      return card.backFaceArtCropUrl ??
+          card.backFaceImageUrl ??
+          card.mainFaceArtCropUrl ??
+          card.mainFaceImageUrl;
+    }
+
+    return card.mainFaceArtCropUrl ??
+        card.mainFaceImageUrl ??
+        card.backFaceArtCropUrl ??
+        card.backFaceImageUrl;
   }
 
   void _rebuildResults() {
@@ -868,25 +902,48 @@ class _CommanderSearchDialogState extends State<_CommanderSearchDialog> {
                                           itemCount: _results.length,
                                           itemBuilder: (context, i) {
                                             final card = _results[i];
+                                            final artImage =
+                                                _displayArtImage(card);
                                             return ListTile(
                                               contentPadding: const EdgeInsets.symmetric(
                                                   horizontal: 4, vertical: 2),
                                               leading: SizedBox(
                                                 width: 56,
                                                 height: 40,
-                                                child: card.imageUris?.artCrop != null
-                                                    ? ClipRRect(
-                                                        borderRadius:
-                                                            BorderRadius.circular(4),
-                                                        child: Image.network(
-                                                          card.imageUris!.artCrop!,
-                                                          fit: BoxFit.cover,
-                                                        ),
-                                                      )
-                                                    : const DecoratedBox(
-                                                        decoration: BoxDecoration(
-                                                            color: Colors.white12),
+                                                child: ClipRRect(
+                                                  borderRadius:
+                                                      BorderRadius.circular(4),
+                                                  child: Stack(
+                                                    fit: StackFit.expand,
+                                                    children: [
+                                                      artImage != null
+                                                          ? Image.network(
+                                                              artImage,
+                                                              fit: BoxFit.cover,
+                                                            )
+                                                          : const DecoratedBox(
+                                                              decoration: BoxDecoration(
+                                                                color: Colors.white12,
+                                                              ),
+                                                            ),
+                                                      CardBadgesOverlay(
+                                                        hasDoubleFacedImages:
+                                                            card.hasDoubleFacedImages,
+                                                        isBanned: card.legalities[
+                                                                'commander'] ==
+                                                            'banned',
+                                                        isGameChanger:
+                                                            card.gameChanger,
+                                                        density:
+                                                            CardBadgeDensity.compact,
+                                                        onDoubleFacedTap: () =>
+                                                            _toggleFlipped(card),
+                                                        isDoubleFacedFlipped:
+                                                            _isFlipped(card),
                                                       ),
+                                                    ],
+                                                  ),
+                                                ),
                                               ),
                                               title: Text(
                                                 card.name,

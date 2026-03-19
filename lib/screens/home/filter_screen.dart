@@ -1,8 +1,14 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/filters/filter_settings.dart';
 import '../../models/cards/card_enums.dart';
 import '../../services/card_service.dart';
+import '../../services/user_preferences_service.dart';
+import '../navigation/navigation_screen.dart';
 import '../../widgets/mana_symbol_label.dart';
 
 class FilterScreen extends StatefulWidget {
@@ -12,22 +18,245 @@ class FilterScreen extends StatefulWidget {
   State<FilterScreen> createState() => _FilterScreenState();
 }
 
-class _FilterScreenState extends State<FilterScreen> with SingleTickerProviderStateMixin {
+class _FilterScreenState extends State<FilterScreen>
+    with SingleTickerProviderStateMixin {
+  static const String _persistedDailyFiltersKey = 'daily_filter_state';
   late TabController _tabController;
+  SpellFilterSettings? _spellFilters;
+  LandFilterSettings? _landFilters;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _attachFilterListeners();
+      unawaited(_loadPersistedDailyFiltersIfEnabled());
+    });
   }
 
   @override
   void dispose() {
+    _spellFilters?.removeListener(_onAnyFilterChanged);
+    _landFilters?.removeListener(_onAnyFilterChanged);
     _tabController.dispose();
     super.dispose();
   }
 
- @override
+  void _attachFilterListeners() {
+    final nextSpell = context.read<SpellFilterSettings>();
+    final nextLand = context.read<LandFilterSettings>();
+
+    if (!identical(_spellFilters, nextSpell)) {
+      _spellFilters?.removeListener(_onAnyFilterChanged);
+      _spellFilters = nextSpell;
+      _spellFilters?.addListener(_onAnyFilterChanged);
+    }
+    if (!identical(_landFilters, nextLand)) {
+      _landFilters?.removeListener(_onAnyFilterChanged);
+      _landFilters = nextLand;
+      _landFilters?.addListener(_onAnyFilterChanged);
+    }
+  }
+
+  void _onAnyFilterChanged() {
+    unawaited(_saveDailyFiltersIfEnabled());
+  }
+
+  Future<void> _loadPersistedDailyFiltersIfEnabled() async {
+    final prefsService = context.read<UserPreferencesService>();
+    final spell = context.read<SpellFilterSettings>();
+    final land = context.read<LandFilterSettings>();
+
+    if (!prefsService.persistentFiltersEnabled) {
+      await _clearPersistedDailyFilters();
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_persistedDailyFiltersKey);
+    if (raw == null || raw.isEmpty) return;
+
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return;
+
+      final spellMap = decoded['spell'] as Map<String, dynamic>?;
+      if (spellMap != null) {
+        final desiredTypes =
+            (spellMap['selectedCardTypes'] as List? ?? const [])
+                .whereType<String>()
+                .toSet();
+        for (final type
+            in CardType.values.where((t) => t.displayName != 'Land')) {
+          final shouldContain = desiredTypes.contains(type.displayName);
+          if (spell.selectedCardTypes.contains(type) != shouldContain) {
+            spell.toggleCardType(type);
+          }
+        }
+
+        final desiredColors = (spellMap['selectedColors'] as List? ?? const [])
+            .whereType<String>()
+            .toSet();
+        for (final color in MTGColor.values) {
+          final shouldContain = desiredColors.contains(color.symbol);
+          if (spell.selectedColors.contains(color) != shouldContain) {
+            spell.toggleColor(color);
+          }
+        }
+
+        final desiredExclusive =
+            spellMap['exclusiveColorMatch'] as bool? ?? false;
+        if (spell.exclusiveColorMatch != desiredExclusive) {
+          spell.toggleColorMatchMode();
+        }
+
+        final desiredMin = (spellMap['minCMC'] as num?)?.toDouble() ?? 0;
+        final desiredMax = (spellMap['maxCMC'] as num?)?.toDouble() ?? 15;
+        if (spell.minCMC != desiredMin) spell.setMinCMC(desiredMin);
+        if (spell.maxCMC != desiredMax) spell.setMaxCMC(desiredMax);
+
+        spell.setKeywords(spellMap['keywords'] as String? ?? '');
+
+        final desiredRarities =
+            (spellMap['selectedRarities'] as List? ?? const [])
+                .whereType<String>()
+                .map((e) => e.toLowerCase())
+                .toSet();
+        for (final rarity in const ['common', 'uncommon', 'rare', 'mythic']) {
+          final shouldContain = desiredRarities.contains(rarity);
+          if (spell.selectedRarities.contains(rarity) != shouldContain) {
+            spell.toggleRarity(rarity);
+          }
+        }
+      }
+
+      final landMap = decoded['land'] as Map<String, dynamic>?;
+      if (landMap != null) {
+        final desiredProduced = (landMap['producedMana'] as List? ?? const [])
+            .whereType<String>()
+            .toSet();
+        for (final color in MTGColor.values) {
+          final shouldContain = desiredProduced.contains(color.symbol);
+          if (land.producedMana.contains(color) != shouldContain) {
+            land.toggleProducedMana(color);
+          }
+        }
+
+        final desiredLandTypes =
+            (landMap['selectedLandTypes'] as List? ?? const [])
+                .whereType<String>()
+                .toSet();
+        for (final landType in land.landTypes) {
+          final shouldContain = desiredLandTypes.contains(landType);
+          if (land.selectedLandTypes.contains(landType) != shouldContain) {
+            land.toggleLandType(landType);
+          }
+        }
+
+        final fetchLands = landMap['fetchLands'] as bool? ?? true;
+        if (land.fetchLands != fetchLands) land.toggleFetchLands();
+        final shockLands = landMap['shockLands'] as bool? ?? true;
+        if (land.shockLands != shockLands) land.toggleShockLands();
+        final dualLands = landMap['dualLands'] as bool? ?? true;
+        if (land.dualLands != dualLands) land.toggleDualLands();
+        final utilityLands = landMap['utilityLands'] as bool? ?? true;
+        if (land.utilityLands != utilityLands) land.toggleUtilityLands();
+
+        land.setKeywords(landMap['keywords'] as String? ?? '');
+      }
+    } catch (_) {
+      // Ignore invalid persisted filter state.
+    }
+  }
+
+  Future<void> _saveDailyFiltersIfEnabled() async {
+    final prefsService = context.read<UserPreferencesService>();
+    if (!prefsService.persistentFiltersEnabled) {
+      await _clearPersistedDailyFilters();
+      return;
+    }
+
+    final spell = context.read<SpellFilterSettings>();
+    final land = context.read<LandFilterSettings>();
+    final state = {
+      'spell': {
+        'selectedCardTypes':
+            spell.selectedCardTypes.map((e) => e.displayName).toList(),
+        'selectedColors': spell.selectedColors.map((e) => e.symbol).toList(),
+        'minCMC': spell.minCMC,
+        'maxCMC': spell.maxCMC,
+        'exclusiveColorMatch': spell.exclusiveColorMatch,
+        'selectedRarities': spell.selectedRarities.toList(),
+        'keywords': spell.keywords,
+      },
+      'land': {
+        'producedMana': land.producedMana.map((e) => e.symbol).toList(),
+        'selectedLandTypes': land.selectedLandTypes.toList(),
+        'fetchLands': land.fetchLands,
+        'shockLands': land.shockLands,
+        'dualLands': land.dualLands,
+        'utilityLands': land.utilityLands,
+        'keywords': land.keywords,
+      },
+    };
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_persistedDailyFiltersKey, jsonEncode(state));
+  }
+
+  Future<void> _clearPersistedDailyFilters() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_persistedDailyFiltersKey);
+  }
+
+  Widget _buildPersistentFiltersBanner() {
+    return Consumer<UserPreferencesService>(
+      builder: (context, preferences, _) {
+        if (!preferences.persistentFiltersEnabled) {
+          return const SizedBox.shrink();
+        }
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+          child: InkWell(
+            onTap: () {
+              Navigator.pushNamed(
+                context,
+                NavigationScreen.routeUserPreferences,
+              );
+            },
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.green.withAlpha((0.16 * 255).round()),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                    color: Colors.green.withAlpha((0.45 * 255).round())),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.check_circle_outline,
+                      size: 18, color: Colors.greenAccent),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Persistent filters are ON',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  Icon(Icons.chevron_right, size: 18),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
@@ -35,7 +264,7 @@ class _FilterScreenState extends State<FilterScreen> with SingleTickerProviderSt
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
-            Tab(text: 'Spell Cards'),  // Changed from 'Non-Land Cards'
+            Tab(text: 'Spell Cards'), // Changed from 'Non-Land Cards'
             Tab(text: 'Lands'),
           ],
         ),
@@ -54,11 +283,18 @@ class _FilterScreenState extends State<FilterScreen> with SingleTickerProviderSt
           ),
         ],
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: const [
-          SpellFilterTab(),
-          LandFilterTab(),
+      body: Column(
+        children: [
+          _buildPersistentFiltersBanner(),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: const [
+                SpellFilterTab(),
+                LandFilterTab(),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -88,10 +324,13 @@ class SpellFilterTab extends StatelessWidget {
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 12),
-                    ...CardType.values.where((type) => type.displayName != 'Land').map((cardType) {
+                    ...CardType.values
+                        .where((type) => type.displayName != 'Land')
+                        .map((cardType) {
                       return CheckboxListTile(
                         title: Text(cardType.displayName),
-                        value: filterSettings.selectedCardTypes.contains(cardType),
+                        value:
+                            filterSettings.selectedCardTypes.contains(cardType),
                         onChanged: (value) {
                           filterSettings.toggleCardType(cardType);
                         },
@@ -134,8 +373,8 @@ class SpellFilterTab extends StatelessWidget {
                           ? null
                           : (_) => filterSettings.toggleColorMatchMode(),
                     ),
-                    Text(filterSettings.exclusiveColorMatch 
-                        ? 'Must match colors exactly' 
+                    Text(filterSettings.exclusiveColorMatch
+                        ? 'Must match colors exactly'
                         : 'Can be played with these colors'),
                     const SizedBox(height: 12),
                     ...MTGColor.values.map((color) {
@@ -197,7 +436,8 @@ class SpellFilterTab extends StatelessWidget {
                             ),
                             keyboardType: TextInputType.number,
                             onChanged: (value) {
-                              filterSettings.setMaxCMC(double.tryParse(value) ?? 15);
+                              filterSettings
+                                  .setMaxCMC(double.tryParse(value) ?? 15);
                             },
                           ),
                         ),
@@ -340,7 +580,8 @@ class LandFilterTab extends StatelessWidget {
                     ...filterSettings.landTypes.map((landType) {
                       return CheckboxListTile(
                         title: Text(landType),
-                        value: filterSettings.selectedLandTypes.contains(landType),
+                        value:
+                            filterSettings.selectedLandTypes.contains(landType),
                         onChanged: (value) {
                           filterSettings.toggleLandType(landType);
                         },

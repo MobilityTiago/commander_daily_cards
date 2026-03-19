@@ -15,6 +15,29 @@ class MoreScreen extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         children: [
           ListTile(
+            leading: const Icon(Icons.science_outlined),
+            title: const Text('Card Pick (beta)'),
+            subtitle: const Text('Preview upcoming card selection tools'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.pushNamed(context, NavigationScreen.routeCardPick);
+            },
+          ),
+          const SizedBox(height: 8),
+          ListTile(
+            leading: const Icon(Icons.tune),
+            title: const Text('User preferences'),
+            subtitle: const Text('Manage profile and display settings'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.pushNamed(
+                context,
+                NavigationScreen.routeUserPreferences,
+              );
+            },
+          ),
+          const SizedBox(height: 8),
+          ListTile(
             leading: const Icon(Icons.favorite),
             title: const Text('Support Me'),
             subtitle: const Text('Help keep development going'),
@@ -30,7 +53,8 @@ class MoreScreen extends StatelessWidget {
             subtitle: const Text('Credits and attributions'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () {
-              Navigator.pushNamed(context, NavigationScreen.routeAcknowledgements);
+              Navigator.pushNamed(
+                  context, NavigationScreen.routeAcknowledgements);
             },
           ),
         ],

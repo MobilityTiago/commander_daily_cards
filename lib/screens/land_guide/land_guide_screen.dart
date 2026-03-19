@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 
@@ -8,6 +7,9 @@ import '../../services/card_service.dart';
 import '../../services/symbol_service.dart';
 import '../../styles/colors.dart';
 import '../../widgets/app_bar.dart';
+import '../../widgets/card_badges_overlay.dart';
+import '../../widgets/collapsible_filter_section.dart';
+import '../../widgets/flip_animated_image.dart';
 import '../../widgets/card_zoom_view.dart';
 
 class LandGuideScreen extends StatefulWidget {
@@ -27,8 +29,9 @@ class _LandGuideScreenState extends State<LandGuideScreen> {
   final Set<String> _selectedMonoFamilies = {};
   final Set<String> _selectedColorlessModes = {};
   final Set<String> _selectedColorlessFamilies = {};
-  bool _showChipFilters = true;
-  double _scrollAccumulator = 0;
+  double _chipFiltersVisibility = 1.0;
+
+  static const double _collapseDistance = 180.0;
 
   @override
   void initState() {
@@ -154,7 +157,8 @@ class _LandGuideScreenState extends State<LandGuideScreen> {
                       _DualLandTab(
                         lands: filteredDualLands,
                         allLands: dualLands,
-                        showChipFilters: _showChipFilters,
+                        showChipFilters: _chipFiltersVisibility > 0.001,
+                        chipFiltersVisibility: _chipFiltersVisibility,
                         selectedPairs: _selectedDualPairs,
                         selectedFamilies: _selectedDualFamilies,
                         onGridScroll: _handleGridScroll,
@@ -176,7 +180,8 @@ class _LandGuideScreenState extends State<LandGuideScreen> {
                       _TriLandTab(
                         lands: triLandsWithFamilies,
                         allLands: triLands,
-                        showChipFilters: _showChipFilters,
+                        showChipFilters: _chipFiltersVisibility > 0.001,
+                        chipFiltersVisibility: _chipFiltersVisibility,
                         selectedCombos: _selectedTriCombos,
                         selectedFamilies: _selectedTriFamilies,
                         onGridScroll: _handleGridScroll,
@@ -194,7 +199,8 @@ class _LandGuideScreenState extends State<LandGuideScreen> {
                       _LandGridTab(
                         lands: filteredMultiLands,
                         allLands: multiLands,
-                        showChipFilters: _showChipFilters,
+                        showChipFilters: _chipFiltersVisibility > 0.001,
+                        chipFiltersVisibility: _chipFiltersVisibility,
                         selectedFamilies: _selectedMultiFamilies,
                         onGridScroll: _handleGridScroll,
                         onToggleFamily: (familyKey) {
@@ -206,7 +212,8 @@ class _LandGuideScreenState extends State<LandGuideScreen> {
                       _MonoLandTab(
                         lands: monoLandsWithFamilies,
                         allLands: monoLands,
-                        showChipFilters: _showChipFilters,
+                        showChipFilters: _chipFiltersVisibility > 0.001,
+                        chipFiltersVisibility: _chipFiltersVisibility,
                         selectedColors: _selectedMonoColors,
                         selectedFamilies: _selectedMonoFamilies,
                         onGridScroll: _handleGridScroll,
@@ -224,7 +231,8 @@ class _LandGuideScreenState extends State<LandGuideScreen> {
                       _ColorlessLandTab(
                         lands: colorlessLandsWithFamilies,
                         allLands: colorlessLands,
-                        showChipFilters: _showChipFilters,
+                        showChipFilters: _chipFiltersVisibility > 0.001,
+                        chipFiltersVisibility: _chipFiltersVisibility,
                         selectedModes: _selectedColorlessModes,
                         selectedFamilies: _selectedColorlessFamilies,
                         onGridScroll: _handleGridScroll,
@@ -262,10 +270,9 @@ class _LandGuideScreenState extends State<LandGuideScreen> {
   void _handleGridScroll(ScrollUpdateNotification notification) {
     final pixels = notification.metrics.pixels;
     if (pixels <= 0) {
-      _scrollAccumulator = 0;
-      if (!_showChipFilters) {
+      if (_chipFiltersVisibility != 1.0) {
         setState(() {
-          _showChipFilters = true;
+          _chipFiltersVisibility = 1.0;
         });
       }
       return;
@@ -274,26 +281,13 @@ class _LandGuideScreenState extends State<LandGuideScreen> {
     final delta = notification.scrollDelta ?? 0;
     if (delta == 0) return;
 
-    // Use a small hysteresis window so tiny finger jitter won't flicker filters.
-    if (_scrollAccumulator == 0 ||
-        (_scrollAccumulator.isNegative != delta.isNegative)) {
-      _scrollAccumulator = delta;
-    } else {
-      _scrollAccumulator += delta;
-    }
+    final next =
+        (_chipFiltersVisibility - (delta / _collapseDistance)).clamp(0.0, 1.0);
+    if ((next - _chipFiltersVisibility).abs() < 0.001) return;
 
-    const threshold = 24.0;
-    if (_scrollAccumulator > threshold && _showChipFilters) {
-      _scrollAccumulator = 0;
-      setState(() {
-        _showChipFilters = false;
-      });
-    } else if (_scrollAccumulator < -threshold && !_showChipFilters) {
-      _scrollAccumulator = 0;
-      setState(() {
-        _showChipFilters = true;
-      });
-    }
+    setState(() {
+      _chipFiltersVisibility = next;
+    });
   }
 }
 
@@ -301,6 +295,7 @@ class _TriLandTab extends StatelessWidget {
   final List<MTGCard> lands;
   final List<MTGCard> allLands;
   final bool showChipFilters;
+  final double chipFiltersVisibility;
   final Set<String> selectedCombos;
   final Set<String> selectedFamilies;
   final ValueChanged<String> onToggleCombo;
@@ -311,6 +306,7 @@ class _TriLandTab extends StatelessWidget {
     required this.lands,
     required this.allLands,
     required this.showChipFilters,
+    required this.chipFiltersVisibility,
     required this.selectedCombos,
     required this.selectedFamilies,
     required this.onToggleCombo,
@@ -323,8 +319,9 @@ class _TriLandTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _CollapsibleChipSection(
+        CollapsibleFilterSection(
           visible: showChipFilters,
+          visibility: chipFiltersVisibility,
           child: Column(
             children: [
               Padding(
@@ -369,6 +366,7 @@ class _DualLandTab extends StatelessWidget {
   final List<MTGCard> lands;
   final List<MTGCard> allLands;
   final bool showChipFilters;
+  final double chipFiltersVisibility;
   final Set<String> selectedPairs;
   final Set<String> selectedFamilies;
   final ValueChanged<String> onTogglePair;
@@ -379,6 +377,7 @@ class _DualLandTab extends StatelessWidget {
     required this.lands,
     required this.allLands,
     required this.showChipFilters,
+    required this.chipFiltersVisibility,
     required this.selectedPairs,
     required this.selectedFamilies,
     required this.onTogglePair,
@@ -391,8 +390,9 @@ class _DualLandTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _CollapsibleChipSection(
+        CollapsibleFilterSection(
           visible: showChipFilters,
+          visibility: chipFiltersVisibility,
           child: Column(
             children: [
               Padding(
@@ -437,6 +437,7 @@ class _DualLandTab extends StatelessWidget {
 class _LandGridTab extends StatelessWidget {
   final List<MTGCard> lands;
   final bool showChipFilters;
+  final double chipFiltersVisibility;
   final List<MTGCard>? allLands;
   final Set<String>? selectedFamilies;
   final ValueChanged<String>? onToggleFamily;
@@ -445,6 +446,7 @@ class _LandGridTab extends StatelessWidget {
   const _LandGridTab({
     required this.lands,
     required this.showChipFilters,
+    required this.chipFiltersVisibility,
     required this.onGridScroll,
     this.allLands,
     this.selectedFamilies,
@@ -459,8 +461,9 @@ class _LandGridTab extends StatelessWidget {
         if (allLands != null &&
             selectedFamilies != null &&
             onToggleFamily != null)
-          _CollapsibleChipSection(
+          CollapsibleFilterSection(
             visible: showChipFilters,
+            visibility: chipFiltersVisibility,
             child: _LandFamilyFilters(
               lands: allLands!,
               selectedFamilies: selectedFamilies!,
@@ -483,6 +486,7 @@ class _MonoLandTab extends StatelessWidget {
   final List<MTGCard> lands;
   final List<MTGCard> allLands;
   final bool showChipFilters;
+  final double chipFiltersVisibility;
   final Set<String> selectedColors;
   final Set<String> selectedFamilies;
   final ValueChanged<String> onToggleColor;
@@ -493,6 +497,7 @@ class _MonoLandTab extends StatelessWidget {
     required this.lands,
     required this.allLands,
     required this.showChipFilters,
+    required this.chipFiltersVisibility,
     required this.selectedColors,
     required this.selectedFamilies,
     required this.onToggleColor,
@@ -505,8 +510,9 @@ class _MonoLandTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _CollapsibleChipSection(
+        CollapsibleFilterSection(
           visible: showChipFilters,
+          visibility: chipFiltersVisibility,
           child: Column(
             children: [
               Padding(
@@ -550,6 +556,7 @@ class _ColorlessLandTab extends StatelessWidget {
   final List<MTGCard> lands;
   final List<MTGCard> allLands;
   final bool showChipFilters;
+  final double chipFiltersVisibility;
   final Set<String> selectedModes;
   final Set<String> selectedFamilies;
   final ValueChanged<String> onToggleMode;
@@ -560,6 +567,7 @@ class _ColorlessLandTab extends StatelessWidget {
     required this.lands,
     required this.allLands,
     required this.showChipFilters,
+    required this.chipFiltersVisibility,
     required this.selectedModes,
     required this.selectedFamilies,
     required this.onToggleMode,
@@ -572,8 +580,9 @@ class _ColorlessLandTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _CollapsibleChipSection(
+        CollapsibleFilterSection(
           visible: showChipFilters,
+          visibility: chipFiltersVisibility,
           child: Column(
             children: [
               Padding(
@@ -715,6 +724,7 @@ class _LandGrid extends StatelessWidget {
         itemCount: lands.length,
         itemBuilder: (context, index) {
           return _LandCardTile(
+            key: ValueKey(lands[index].id),
             card: lands[index],
             cards: lands,
             initialIndex: index,
@@ -725,58 +735,48 @@ class _LandGrid extends StatelessWidget {
   }
 }
 
-class _CollapsibleChipSection extends StatelessWidget {
-  final bool visible;
-  final Widget child;
-
-  const _CollapsibleChipSection({
-    required this.visible,
-    required this.child,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRect(
-      child: AnimatedSize(
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeInOutCubic,
-        child: AnimatedOpacity(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeInOutCubic,
-          opacity: visible ? 1 : 0,
-          child: AnimatedSlide(
-            duration: const Duration(milliseconds: 260),
-            curve: Curves.easeInOutCubic,
-            offset: visible ? Offset.zero : const Offset(0, -0.08),
-            child: Align(
-              alignment: Alignment.topCenter,
-              heightFactor: visible ? 1 : 0,
-              child: IgnorePointer(
-                ignoring: !visible,
-                child: child,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _LandCardTile extends StatelessWidget {
+class _LandCardTile extends StatefulWidget {
   final MTGCard card;
   final List<MTGCard> cards;
   final int initialIndex;
 
   const _LandCardTile({
+    super.key,
     required this.card,
     required this.cards,
     required this.initialIndex,
   });
 
   @override
+  State<_LandCardTile> createState() => _LandCardTileState();
+}
+
+class _LandCardTileState extends State<_LandCardTile> {
+  bool _isFlipped = false;
+
+  @override
+  void didUpdateWidget(covariant _LandCardTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.card.id != widget.card.id && _isFlipped) {
+      _isFlipped = false;
+    }
+  }
+
+  String? get _displayImageUrl {
+    if (!widget.card.hasDoubleFacedImages) {
+      return widget.card.mainFaceImageUrl;
+    }
+
+    if (_isFlipped) {
+      return widget.card.backFaceImageUrl ?? widget.card.mainFaceImageUrl;
+    }
+
+    return widget.card.mainFaceImageUrl ?? widget.card.backFaceImageUrl;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final imageUrl = card.mainFaceImageUrl;
+    final imageUrl = _displayImageUrl;
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -790,8 +790,8 @@ class _LandCardTile extends StatelessWidget {
                       PageRouteBuilder(
                         opaque: false,
                         pageBuilder: (context, _, __) => CardZoomView(
-                          cards: cards,
-                          initialIndex: initialIndex,
+                          cards: widget.cards,
+                          initialIndex: widget.initialIndex,
                         ),
                         transitionsBuilder: (context, animation, _, child) {
                           return FadeTransition(
@@ -801,70 +801,32 @@ class _LandCardTile extends StatelessWidget {
                     );
                   },
             child: imageUrl != null
-                ? Image.network(
-                    imageUrl,
+                ? FlipAnimatedImage(
+                    imageUrl: imageUrl,
+                    isFlipped: _isFlipped,
                     fit: BoxFit.cover,
-                  )
-                : const Center(
-                    child: Icon(
-                      Icons.broken_image,
-                      size: 48,
-                      color: AppColors.darkGrey,
+                    placeholder: Image.asset(
+                      'assets/images/Magic_card_back.png',
+                      fit: BoxFit.cover,
                     ),
+                  )
+                : Image.asset(
+                    'assets/images/Magic_card_back.png',
+                    fit: BoxFit.cover,
                   ),
           ),
-          if (card.legalities['commander'] == 'banned')
-            Positioned(
-              top: 0,
-              left: 0,
-              child: Container(
-                width: 26,
-                height: 20,
-                decoration: const BoxDecoration(
-                  color: Colors.red,
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(2),
-                    bottomRight: Radius.circular(8),
-                  ),
-                ),
-                child: const Center(
-                  child: Text(
-                    'BAN',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 9,
-                    ),
-                  ),
-                ),
-              ),
-            )
-          else if (card.gameChanger)
-            Positioned(
-              top: 0,
-              left: 0,
-              child: Container(
-                width: 20,
-                height: 20,
-                decoration: const BoxDecoration(
-                  color: AppColors.gameChangerOrange,
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(2),
-                    bottomRight: Radius.circular(8),
-                  ),
-                ),
-                child: const Center(
-                  child: Text(
-                    'GC',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 10,
-                    ),
-                  ),
-                ),
-              ),
-            ),
+          CardBadgesOverlay(
+            hasDoubleFacedImages: widget.card.hasDoubleFacedImages,
+            isBanned: widget.card.legalities['commander'] == 'banned',
+            isGameChanger: widget.card.gameChanger,
+            onDoubleFacedTap: () {
+              if (!widget.card.hasDoubleFacedImages) return;
+              setState(() {
+                _isFlipped = !_isFlipped;
+              });
+            },
+            isDoubleFacedFlipped: _isFlipped,
+          ),
         ],
       ),
     );
