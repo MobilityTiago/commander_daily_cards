@@ -22,6 +22,14 @@ Commander deck building usually means moving between card databases, articles, a
 - search the full local card pool instantly
 - review bracket, banned, and game changer context without leaving the app
 
+## What's New
+
+- Cleaner card zoom pricing: prices are easier to scan at a glance, with market access shown as a simple external-link indicator.
+- Faster browsing in format views: filter chips now collapse as you scroll in Land Guide, Game Changers, and Banned, giving more room to explore cards.
+- More consistent filtering UX: chip behavior is aligned across views for a predictable tap-and-filter experience.
+- Search flow polish: the main search action now uses a compact icon button with the same accent color language used across the app.
+- Visual consistency improvements: app colors are now centralized, creating a more cohesive look and making future design updates faster.
+
 ## Feature Highlights
 
 ### Daily Suggestions
@@ -45,6 +53,7 @@ Commander deck building usually means moving between card databases, articles, a
 - Advanced search screen with Scryfall-style query syntax
 - Fullscreen card zoom experience
 - Card detail and art actions for deeper inspection
+- Quicker, cleaner search action with an icon-first control
 
 ### Format Utility Screens
 
@@ -52,6 +61,7 @@ Commander deck building usually means moving between card databases, articles, a
 - Game Changers screen
 - Banned cards screen
 - Double-faced card badges and other visual cues throughout the app
+- Scroll-aware filters that stay available when needed and get out of the way while browsing
 
 ### Sites
 

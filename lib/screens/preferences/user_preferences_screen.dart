@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../services/user_preferences_service.dart';
+import '../../utils/app_haptics.dart';
 import '../../widgets/app_bar.dart';
 
 class UserPreferencesScreen extends StatefulWidget {
@@ -14,28 +17,76 @@ class UserPreferencesScreen extends StatefulWidget {
 class _UserPreferencesScreenState extends State<UserPreferencesScreen> {
   late final TextEditingController _usernameController;
   late final TextEditingController _emailController;
+  late final FocusNode _usernameFocusNode;
+  late final FocusNode _emailFocusNode;
   bool _controllersInitialized = false;
   bool _isSaving = false;
+  bool _pendingSave = false;
   PricePreference _selectedPricePreference = PricePreference.none;
   MarketPreference _selectedMarketPreference = MarketPreference.tcgplayer;
   bool _persistentFiltersEnabled = true;
+  String _savedUsername = '';
+  String _savedEmail = '';
+  PricePreference _savedPricePreference = PricePreference.none;
+  MarketPreference _savedMarketPreference = MarketPreference.tcgplayer;
+  bool _savedPersistentFiltersEnabled = true;
 
   @override
   void initState() {
     super.initState();
     _usernameController = TextEditingController();
     _emailController = TextEditingController();
+    _usernameFocusNode = FocusNode()..addListener(_handleTextFieldBlur);
+    _emailFocusNode = FocusNode()..addListener(_handleTextFieldBlur);
   }
 
   @override
   void dispose() {
+    _usernameFocusNode
+      ..removeListener(_handleTextFieldBlur)
+      ..dispose();
+    _emailFocusNode
+      ..removeListener(_handleTextFieldBlur)
+      ..dispose();
     _usernameController.dispose();
     _emailController.dispose();
     super.dispose();
   }
 
-  Future<void> _save(UserPreferencesService preferences) async {
-    if (_isSaving) return;
+  void _handleTextFieldBlur() {
+    if (_usernameFocusNode.hasFocus || _emailFocusNode.hasFocus) {
+      return;
+    }
+    unawaited(_saveIfChanged());
+  }
+
+  bool _hasUnsavedChanges() {
+    return _usernameController.text != _savedUsername ||
+        _emailController.text != _savedEmail ||
+        _selectedPricePreference != _savedPricePreference ||
+        _selectedMarketPreference != _savedMarketPreference ||
+        _persistentFiltersEnabled != _savedPersistentFiltersEnabled;
+  }
+
+  void _captureSavedState() {
+    _savedUsername = _usernameController.text;
+    _savedEmail = _emailController.text;
+    _savedPricePreference = _selectedPricePreference;
+    _savedMarketPreference = _selectedMarketPreference;
+    _savedPersistentFiltersEnabled = _persistentFiltersEnabled;
+  }
+
+  Future<void> _saveIfChanged() async {
+    if (!_controllersInitialized || !_hasUnsavedChanges()) {
+      return;
+    }
+
+    if (_isSaving) {
+      _pendingSave = true;
+      return;
+    }
+
+    final preferences = context.read<UserPreferencesService>();
 
     setState(() {
       _isSaving = true;
@@ -49,15 +100,20 @@ class _UserPreferencesScreenState extends State<UserPreferencesScreen> {
       persistentFiltersEnabled: _persistentFiltersEnabled,
     );
 
+    _captureSavedState();
+
     if (!mounted) return;
 
     setState(() {
       _isSaving = false;
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Preferences saved')),
-    );
+    AppHaptics.confirm();
+
+    if (_pendingSave) {
+      _pendingSave = false;
+      unawaited(_saveIfChanged());
+    }
   }
 
   @override
@@ -76,6 +132,7 @@ class _UserPreferencesScreenState extends State<UserPreferencesScreen> {
             _selectedPricePreference = preferences.pricePreference;
             _selectedMarketPreference = preferences.marketPreference;
             _persistentFiltersEnabled = preferences.persistentFiltersEnabled;
+            _captureSavedState();
             _controllersInitialized = true;
           }
 
@@ -89,6 +146,7 @@ class _UserPreferencesScreenState extends State<UserPreferencesScreen> {
               const SizedBox(height: 12),
               TextField(
                 controller: _usernameController,
+                focusNode: _usernameFocusNode,
                 decoration: const InputDecoration(
                   labelText: 'Username (optional)',
                   border: OutlineInputBorder(),
@@ -97,6 +155,7 @@ class _UserPreferencesScreenState extends State<UserPreferencesScreen> {
               const SizedBox(height: 12),
               TextField(
                 controller: _emailController,
+                focusNode: _emailFocusNode,
                 keyboardType: TextInputType.emailAddress,
                 decoration: const InputDecoration(
                   labelText: 'Email (optional)',
@@ -137,6 +196,8 @@ class _UserPreferencesScreenState extends State<UserPreferencesScreen> {
                   setState(() {
                     _selectedPricePreference = value;
                   });
+                  AppHaptics.selection();
+                  unawaited(_saveIfChanged());
                 },
               ),
               const SizedBox(height: 24),
@@ -165,6 +226,8 @@ class _UserPreferencesScreenState extends State<UserPreferencesScreen> {
                   setState(() {
                     _selectedMarketPreference = value;
                   });
+                  AppHaptics.selection();
+                  unawaited(_saveIfChanged());
                 },
               ),
               const SizedBox(height: 24),
@@ -179,19 +242,9 @@ class _UserPreferencesScreenState extends State<UserPreferencesScreen> {
                   setState(() {
                     _persistentFiltersEnabled = value;
                   });
+                  AppHaptics.selection();
+                  unawaited(_saveIfChanged());
                 },
-              ),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: _isSaving ? null : () => _save(preferences),
-                icon: _isSaving
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.save),
-                label: Text(_isSaving ? 'Saving...' : 'Save preferences'),
               ),
             ],
           );

@@ -12,6 +12,7 @@ import '../styles/colors.dart';
 import '../models/cards/mtg_card.dart';
 import '../services/card_service.dart';
 import '../services/user_preferences_service.dart';
+import '../utils/app_haptics.dart';
 
 class CardZoomView extends StatefulWidget {
   final List<MTGCard> cards;
@@ -559,6 +560,9 @@ class _CardZoomViewState extends State<CardZoomView> {
           name: '${card.name.replaceAll(RegExp(r'[^\w\s-]'), '')}_full',
         );
         if (mounted) {
+          if (result['isSuccess'] == true) {
+            AppHaptics.confirm();
+          }
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(result['isSuccess']
@@ -587,6 +591,9 @@ class _CardZoomViewState extends State<CardZoomView> {
           name: card.name.replaceAll(RegExp(r'[^\w\s-]'), ''),
         );
         if (mounted) {
+          if (result['isSuccess'] == true) {
+            AppHaptics.confirm();
+          }
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(result['isSuccess']
@@ -648,7 +655,10 @@ class _CardZoomViewState extends State<CardZoomView> {
           backgroundColor: AppColors.black.withAlpha((0.8 * 255).round()),
           body: GestureDetector(
             onTap: () => Navigator.pop(context),
-            onLongPress: () => _showOptions(_activeCardForOptions(cardService)),
+            onLongPress: () {
+              AppHaptics.longPress();
+              _showOptions(_activeCardForOptions(cardService));
+            },
             child: PageView.builder(
               controller: _pageController,
               itemCount: widget.cards.length,

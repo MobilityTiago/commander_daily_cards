@@ -8,6 +8,7 @@ import '../../services/card_service.dart';
 import '../../services/set_service.dart';
 import '../../models/filters/filter_settings.dart';
 import '../../styles/colors.dart';
+import '../../utils/app_haptics.dart';
 import '../../widgets/card_badges_overlay.dart';
 import '../../widgets/card_suggestion_section.dart';
 import '../../widgets/card_zoom_view.dart';
@@ -76,6 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
       landFilters.lockToCommanderIdentity(identityList);
       await cardService.setSelectedCommanders(result);
       await cardService.refreshDailyCards(spellFilters, landFilters);
+      AppHaptics.confirm();
     }
   }
 

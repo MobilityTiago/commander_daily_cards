@@ -41,7 +41,7 @@ class AppBottomNavBar extends StatelessWidget {
         ),
         BottomNavigationBarItem(
           icon: Icon(Icons.public),
-          label: 'Sites',
+          label: 'Content',
         ),
         BottomNavigationBarItem(
           icon: Icon(Icons.more_horiz),

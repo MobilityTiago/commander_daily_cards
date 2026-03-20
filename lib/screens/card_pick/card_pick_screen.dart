@@ -17,6 +17,7 @@ import 'package:provider/provider.dart';
 import '../../models/cards/mtg_card.dart';
 import '../../services/card_service.dart';
 import '../../services/set_service.dart';
+import '../../utils/app_haptics.dart';
 import '../../widgets/card_zoom_view.dart';
 
 class CardPickScreen extends StatefulWidget {
@@ -279,6 +280,7 @@ class _CardPickScreenState extends State<CardPickScreen> {
             ? 'Matched ${finalCard.name}'
             : 'Matched ${finalCard.name} (${setCode.toUpperCase()})';
       });
+      AppHaptics.confirm();
       await _openCardZoom(finalCard);
     } catch (e) {
       if (!mounted) return;
@@ -1848,10 +1850,18 @@ class _CardPickScreenState extends State<CardPickScreen> {
                                               icon: const Icon(Icons.clear,
                                                   size: 18),
                                               onPressed: () {
+                                                final hadLock = _lockedSetCode !=
+                                                    null;
                                                 setDialogState(() {
                                                   controller.clear();
                                                   setController.clear();
                                                 });
+                                                if (hadLock) {
+                                                  setState(() {
+                                                    _lockedSetCode = null;
+                                                  });
+                                                  AppHaptics.selection();
+                                                }
                                               },
                                             ),
                                     ),
@@ -1859,6 +1869,14 @@ class _CardPickScreenState extends State<CardPickScreen> {
                                       setDialogState(() {
                                         setController.text = value;
                                       });
+                                    },
+                                    onSubmitted: (value) {
+                                      final code = _resolveSetLockCode(value);
+                                      setState(() {
+                                        _lockedSetCode = code.isEmpty ? null : code;
+                                      });
+                                      AppHaptics.selection();
+                                      Navigator.of(dialogCtx).pop();
                                     },
                                   );
                                 },
@@ -1902,41 +1920,21 @@ class _CardPickScreenState extends State<CardPickScreen> {
                                   );
                                 },
                                 onSelected: (selection) {
+                                  final displayValue =
+                                      '${selection.name} (${selection.code.toUpperCase()})';
                                   setDialogState(() {
-                                    setController.text =
-                                        '${selection.name} (${selection.code.toUpperCase()})';
+                                    setController.text = displayValue;
                                   });
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Padding(
-                              padding: const EdgeInsets.only(top: 2),
-                              child: FilledButton(
-                                onPressed: () {
-                                  final code =
-                                      _resolveSetLockCode(setController.text);
                                   setState(() {
-                                    _lockedSetCode = code.isEmpty ? null : code;
+                                    _lockedSetCode = selection.code.toLowerCase();
                                   });
+                                  AppHaptics.selection();
                                   Navigator.of(dialogCtx).pop();
                                 },
-                                child: const Text('Apply'),
                               ),
                             ),
                           ],
                         ),
-                        if (_lockedSetCode != null) ...[
-                          const SizedBox(height: 8),
-                          TextButton.icon(
-                            onPressed: () {
-                              setState(() => _lockedSetCode = null);
-                              Navigator.of(dialogCtx).pop();
-                            },
-                            icon: const Icon(Icons.lock_open, size: 18),
-                            label: const Text('Clear Set Lock'),
-                          ),
-                        ],
                       ],
                     ),
                   ),
@@ -1977,34 +1975,42 @@ class _CardPickScreenState extends State<CardPickScreen> {
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         if (_lockedSetCode != null)
-          Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.orange.withOpacity(0.88),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Builder(builder: (context) {
-              final setService = context.read<SetService>();
-              final iconSvg = setService.iconSvgBySetCode(_lockedSetCode!);
-              return SizedBox(
-                width: 24,
-                height: 24,
-                child: iconSvg != null
-                    ? SvgPicture.string(
-                        iconSvg,
-                        colorFilter: const ColorFilter.mode(
-                          Colors.white,
-                          BlendMode.srcIn,
+          GestureDetector(
+            onTap: () {
+              setState(() {
+                _lockedSetCode = null;
+              });
+              AppHaptics.selection();
+            },
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.88),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Builder(builder: (context) {
+                final setService = context.read<SetService>();
+                final iconSvg = setService.iconSvgBySetCode(_lockedSetCode!);
+                return SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: iconSvg != null
+                      ? SvgPicture.string(
+                          iconSvg,
+                          colorFilter: const ColorFilter.mode(
+                            Colors.white,
+                            BlendMode.srcIn,
+                          ),
+                        )
+                      : Icon(
+                          Icons.style,
+                          size: 24,
+                          color: Colors.white.withOpacity(0.7),
                         ),
-                      )
-                    : Icon(
-                        Icons.style,
-                        size: 24,
-                        color: Colors.white.withOpacity(0.7),
-                      ),
-              );
-            }),
+                );
+              }),
+            ),
           ),
         ClipRRect(
           borderRadius: BorderRadius.circular(28),
